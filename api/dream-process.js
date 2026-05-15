@@ -20,7 +20,7 @@ export default async function handler(req, res) {
       
       const fileStream = fs.createReadStream(audioFile.filepath);
 
-      // --- 1. OpenAI Whisper (語音轉文字) ---
+      // --- 1. OpenAI Whisper ---
       const FormDataNode = await import('form-data').then(m => m.default);
       const fd = new FormDataNode();
       fd.append('file', fileStream, { filename: 'dream.webm' });
@@ -36,9 +36,9 @@ export default async function handler(req, res) {
       });
 
       const whisperResult = await whisperRes.json();
-      const rawText = whisperResult.text || "（未辨識到內容）";
+      const rawText = whisperResult.text || "";
 
-      // --- 2. OpenAI GPT-4o (結構化夢境分析) ---
+      // --- 2. OpenAI GPT-4o (優化標籤與語言邏輯) ---
       const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -50,22 +50,19 @@ export default async function handler(req, res) {
           messages: [
             { 
               role: "system", 
-              content: "你是一位夢境分析師與影片導演。請將夢境描述轉化為結構化資料。seeds 內容請用繁體中文，prompt 使用英文。" 
+              content: `你是一位夢境分析師。請根據用戶錄音的語言進行分析：
+              1. 如果錄音是中文，seeds 和 tags 必須全部使用繁體中文。
+              2. 如果錄音是英文，seeds 和 tags 使用英文。
+              3. tags 必須是「情緒或氛圍」相關的標籤（例如：詭異、焦慮、溫馨），不要放入物件名詞。
+              4. prompt 則固定維持高品質英文影片指令。` 
             },
             { 
               role: "user", 
               content: `夢境內容：${rawText}。請回傳 JSON 格式：
               {
-                "seeds": {
-                  "scene": "場景描述",
-                  "mood": "情緒描述",
-                  "character": "人物描述",
-                  "color": "顏色色調",
-                  "feeling": "內心感受",
-                  "elements": "重複出現的元素"
-                },
-                "prompt": "一段高品質英文影片指令",
-                "tags": ["標籤1", "標籤2", "標籤3"]
+                "seeds": { "scene": "...", "mood": "...", "character": "...", "color": "...", "feeling": "...", "elements": "..." },
+                "prompt": "...",
+                "tags": ["情緒標籤1", "情緒標籤2", "情緒標籤3"]
               }` 
             }
           ],
@@ -76,7 +73,6 @@ export default async function handler(req, res) {
       const chatData = await chatRes.json();
       const aiContent = JSON.parse(chatData.choices[0].message.content);
 
-      // --- 3. 回傳結果 ---
       return res.status(200).json({
         success: true,
         rawTranscript: rawText,
@@ -86,7 +82,6 @@ export default async function handler(req, res) {
       });
 
     } catch (error) {
-      console.error("OpenAI Error:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
