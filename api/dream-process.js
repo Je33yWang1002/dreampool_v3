@@ -9,17 +9,18 @@ const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 🔥【精確切分修正】Kling 官方標準動態 Token 演算法
+// 🔥【終極精確修正】徹底剔除 sk- 前綴，還原真實 Kling 帳密欄位
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
     let accessKeyId = '';
     let secretAccessKey = '';
 
-    // 密鑰全長 35 字元：sk- (3字) + 16字 (前半) + 16字 (後半)
+    // 金鑰格式為 sk-11c0717a842d43b4b2ed3977528f95f3 (共 35 字元)
     if (apiKey.startsWith('sk-') && apiKey.length === 35) {
-      accessKeyId = apiKey.substring(0, 19);     // 精確切出前 19 字: "sk-11c0717a842d43b4"
-      secretAccessKey = apiKey.substring(19);    // 精確切出後 16 字: "b2ed3977528f95f3"
+      // 剔除前 3 碼 'sk-'，精確分割後方各自 16 碼的真實密鑰
+      accessKeyId = apiKey.substring(3, 19);     // 拿到真實帳號: "11c0717a842d43b4"
+      secretAccessKey = apiKey.substring(19);    // 拿到真實密碼: "b2ed3977528f95f3"
     } else if (apiKey.includes('.')) {
       [accessKeyId, secretAccessKey] = apiKey.split('.');
     } else {
@@ -29,8 +30,8 @@ function getKlingAuthHeader(apiKey) {
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
-      iss: accessKeyId,
-      exp: now + 300, // 5 分鐘有效
+      iss: accessKeyId.trim(), // 這邊傳入純粹英數的 16 位帳號
+      exp: now + 300, 
       nbf: now - 5
     };
 
@@ -46,7 +47,7 @@ function getKlingAuthHeader(apiKey) {
     const encodedPayload = base64UrlEncode(payload);
     const tokenData = `${encodedHeader}.${encodedPayload}`;
 
-    // 使用精確的後半段 16 位密碼進行 HMAC-SHA256 加密
+    // 使用乾淨的 16 位 secretAccessKey 進行簽章加密
     const signature = crypto
       .createHmac('sha256', secretAccessKey.trim())
       .update(tokenData)
@@ -55,7 +56,6 @@ function getKlingAuthHeader(apiKey) {
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
-    // 🔥 確保最終輸出的開頭絕對帶有 "Bearer " 滿足 Kling 1002 錯誤的要求
     return `Bearer ${tokenData}.${signature}`;
   } catch (e) {
     console.error("Kling 簽章計算失敗:", e);
@@ -146,7 +146,6 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 計算帶有 Bearer 前綴的正確動態加密 Token
         const klingAuthToken = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
