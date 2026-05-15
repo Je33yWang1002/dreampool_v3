@@ -3,38 +3,39 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 
-// 絕對安全：從 Vercel 後台安全的讀取金鑰，程式碼不留任何痕跡
+// 安全地從 Vercel 後台讀取環境變數
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 專門清洗字串並計算 Kling 官方高級簽章的函式
+// 計算 Kling 官方高級簽章並自動加上 Bearer 的功能
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
-    // 強效清洗：把前後可能不小心複製到的空格、換行全部刪除乾淨
+    // 清洗字串：移除前後空白與換行
     const cleanKey = apiKey.trim().replace(/[\r\n]/g, '');
 
+    // 如果後台填寫的格式不是 "AccessKey.SecretKey"，就當作一般 Token 處理
     if (!cleanKey.includes('.')) {
-      return `Bearer ${cleanKey}`;
+      return cleanKey.startsWith('Bearer ') ? cleanKey : `Bearer ${cleanKey}`;
     }
 
-    // 精準切開 Access Key 與 Secret Key
+    // 切開 Access Key 與 Secret Key
     const parts = cleanKey.split('.');
     const accessKeyId = parts[0].trim();
     const secretAccessKey = parts[1].trim();
 
     if (!accessKeyId || !secretAccessKey) {
-      return `Bearer ${cleanKey}`;
+      return cleanKey.startsWith('Bearer ') ? cleanKey : `Bearer ${cleanKey}`;
     }
 
-    // 開始進行 Kling 官方標準的加密計算
+    // 開始進行 Kling 官方標準的 JWT 加密計算
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
       iss: accessKeyId,
-      exp: now + 1800, // 30分鐘有效時間
+      exp: now + 1800, // 30 分鐘有效時間
       nbf: now - 5
     };
 
@@ -58,8 +59,8 @@ function getKlingAuthHeader(apiKey) {
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
-    // 注意：這裡回傳的是純 Token，開頭絕對不加 Bearer，完美符合 Kling 規定！
-    return `${tokenData}.${signature}`;
+    // 【核心修正】：Kling 規定生成的 Token 前面一定要強制補上 Bearer 字樣！
+    return `Bearer ${tokenData}.${signature}`;
   } catch (e) {
     console.error("Kling 驗證計算失敗：", e);
     return '';
@@ -137,7 +138,7 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 呼叫清洗與加密函式
+        // 呼叫清洗與加密函式（現在會正確帶有 Bearer）
         const klingAuth = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
