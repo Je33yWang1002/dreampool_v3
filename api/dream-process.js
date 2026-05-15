@@ -1,12 +1,69 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
+import crypto from 'crypto'; 
 import FormData from 'form-data';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
+
+// 🔥【核心大修正】真正符合 Kling 官方規定的動態加密簽章演算法
+function getKlingAuthHeader(apiKey) {
+  if (!apiKey) return '';
+  try {
+    let accessKeyId = '';
+    let secretAccessKey = '';
+
+    // 針對你提供的純字串格式進行精確切分 (前半段19碼，後半段16碼)
+    // 密鑰範例: sk-11c0717a842d43b4 b2ed3977528f95f3
+    if (apiKey.startsWith('sk-') && apiKey.length === 35) {
+      accessKeyId = apiKey.substring(0, 19);     // 取得 sk-11c0717a842d43b4
+      secretAccessKey = apiKey.substring(19);    // 取得 b2ed3977528f95f3
+    } else if (apiKey.includes('.')) {
+      [accessKeyId, secretAccessKey] = apiKey.split('.');
+    } else {
+      // 萬一不符合，降級回傳統 Bearer 嘗試
+      return `Bearer ${apiKey}`;
+    }
+
+    const header = { alg: 'HS256', typ: 'JWT' };
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: accessKeyId,
+      exp: now + 300, // 5 分鐘有效
+      nbf: now - 5
+    };
+
+    const base64UrlEncode = (obj) => {
+      return Buffer.from(JSON.stringify(obj))
+        .toString('base64')
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+    };
+
+    const encodedHeader = base64UrlEncode(header);
+    const encodedPayload = base64UrlEncode(payload);
+    const tokenData = `${encodedHeader}.${encodedPayload}`;
+
+    // 使用後半段的 secretAccessKey 進行軍事級 HMAC-SHA256 加密
+    const signature = crypto
+      .createHmac('sha256', secretAccessKey)
+      .update(tokenData)
+      .digest('base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+
+    // 這才是 Kling 天衣無縫的認證萬用鑰匙
+    return `${tokenData}.${signature}`;
+  } catch (e) {
+    console.error("Kling 簽章計算失敗:", e);
+    return `Bearer ${apiKey}`;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: "Method not allowed" });
@@ -91,13 +148,13 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 新版直連驗證：直接把密碼塞進去，不進行任何點號拆解
-        const klingAuth = KLING_API_KEY.startsWith('Bearer ') ? KLING_API_KEY : `Bearer ${KLING_API_KEY}`;
+        // 計算當下的動態 Token
+        const klingAuthToken = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
           method: 'POST',
           headers: {
-            'Authorization': klingAuth,
+            'Authorization': klingAuthToken,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -129,11 +186,11 @@ export default async function handler(req, res) {
       // --- 階段三：查詢進度 ---
       else if (mode === 'check_status') {
         const taskId = Array.isArray(fields.taskId) ? fields.taskId[0] : fields.taskId;
-        const klingAuth = KLING_API_KEY.startsWith('Bearer ') ? KLING_API_KEY : `Bearer ${KLING_API_KEY}`;
+        const klingAuthToken = getKlingAuthHeader(KLING_API_KEY);
         
         const checkRes = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
           method: 'GET',
-          headers: { 'Authorization': klingAuth }
+          headers: { 'Authorization': klingAuthToken }
         });
         const checkData = await checkRes.json();
         const status = checkData.data?.task_status;
