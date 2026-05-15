@@ -3,33 +3,38 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 
+// 絕對安全：從 Vercel 後台安全的讀取金鑰，程式碼不留任何痕跡
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 官方標準 JWT / 簽章生成函式（修正相容性）
+// 專門清洗字串並計算 Kling 官方高級簽章的函式
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
-    let accessKeyId = '';
-    let secretAccessKey = '';
+    // 強效清洗：把前後可能不小心複製到的空格、換行全部刪除乾淨
+    const cleanKey = apiKey.trim().replace(/[\r\n]/g, '');
 
-    // 自動判斷並切分金鑰
-    if (apiKey.includes('.')) {
-      [accessKeyId, secretAccessKey] = apiKey.split('.');
-    } else {
-      // 預防萬一：如果使用者在環境變數誤帶了引號或空格，進行基本清洗
-      return `Bearer ${apiKey.trim()}`;
+    if (!cleanKey.includes('.')) {
+      return `Bearer ${cleanKey}`;
     }
 
-    if (!accessKeyId || !secretAccessKey) return `Bearer ${apiKey}`;
+    // 精準切開 Access Key 與 Secret Key
+    const parts = cleanKey.split('.');
+    const accessKeyId = parts[0].trim();
+    const secretAccessKey = parts[1].trim();
 
+    if (!accessKeyId || !secretAccessKey) {
+      return `Bearer ${cleanKey}`;
+    }
+
+    // 開始進行 Kling 官方標準的加密計算
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
-      iss: accessKeyId.trim(),
-      exp: now + 1800, 
+      iss: accessKeyId,
+      exp: now + 1800, // 30分鐘有效時間
       nbf: now - 5
     };
 
@@ -46,17 +51,18 @@ function getKlingAuthHeader(apiKey) {
     const tokenData = `${encodedHeader}.${encodedPayload}`;
 
     const signature = crypto
-      .createHmac('sha256', secretAccessKey.trim())
+      .createHmac('sha256', secretAccessKey)
       .update(tokenData)
       .digest('base64')
       .replace(/=/g, '')
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
+    // 注意：這裡回傳的是純 Token，開頭絕對不加 Bearer，完美符合 Kling 規定！
     return `${tokenData}.${signature}`;
   } catch (e) {
-    console.error("生成 Kling 驗證失敗：", e);
-    return `Bearer ${apiKey}`;
+    console.error("Kling 驗證計算失敗：", e);
+    return '';
   }
 }
 
@@ -86,7 +92,7 @@ export default async function handler(req, res) {
 
         const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, ...fd.getHeaders() },
+          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY ? OPENAI_API_KEY.trim() : ''}`, ...fd.getHeaders() },
           body: fd
         });
         const whisperResult = await whisperRes.json();
@@ -96,7 +102,7 @@ export default async function handler(req, res) {
 
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY ? OPENAI_API_KEY.trim() : ''}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
@@ -118,7 +124,7 @@ export default async function handler(req, res) {
         
         const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY ? OPENAI_API_KEY.trim() : ''}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
@@ -131,6 +137,7 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
+        // 呼叫清洗與加密函式
         const klingAuth = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
