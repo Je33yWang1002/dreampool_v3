@@ -17,10 +17,14 @@
         #stop { background: #57606f; color: white; }
         #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
         
-        /* 影片播放器樣式：標準 9:16 直式大螢幕 */
         .video-container { margin-top: 25px; text-align: center; display: none; background: #1e272e; padding: 20px; border-radius: 12px; border: 1px solid #ffd32a; }
-        video { width: 100%; max-width: 320px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+        video { width: 100%; max-width: 320px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); height: auto; aspect-ratio: 9 / 16; background: #000; }
         .loading-movie { color: #ffd32a; font-style: italic; margin-top: 15px; text-align: center; display: none; padding: 10px; background: rgba(255,211,42,0.1); border-radius: 5px; }
+        
+        /* 偵錯專用工具箱 */
+        .debug-box { margin-top: 20px; background: #333; padding: 15px; border-radius: 8px; border: 1px dashed #aaa; }
+        .debug-input { width: 70%; padding: 8px; border-radius: 4px; border: 1px solid #666; background: #222; color: #fff; }
+        .debug-btn { padding: 8px 15px; background: #2ed573; color: white; border-radius: 4px; font-size: 12px; margin: 0 0 0 5px; }
     </style>
 </head>
 <body>
@@ -46,7 +50,13 @@
 
         <div id="videoDisplaySection" class="video-container">
             <p style="text-align:left; color:#ffd32a; margin-top:0;"><strong>🔮 您的潛意識電影上映了：</strong></p>
-            <video id="dreamVideoPlayer" controls autoplay loop playsinline></video>
+            <video id="dreamVideoPlayer" controls autoplay loop playsinline mutes></video>
+        </div>
+
+        <div class="debug-box">
+            <p style="margin:0 0 10px 0; font-size:13px; color:#aaa;">🛠️ 開發者測試工具（若 Kling 點數不足，可在下方直接貼上 MP4 網址測試畫面）：</p>
+            <input type="text" id="directVideoUrl" class="debug-input" placeholder="請在此處輸入 .mp4 影片網址...">
+            <button id="forcePlayBtn" class="debug-btn">強制秀出影片</button>
         </div>
 
         <div id="finalOutput" style="margin-top:30px; display:none;">
@@ -64,6 +74,18 @@
         const developBtn = document.getElementById('developBtn');
         const statusDiv = document.getElementById('status');
         const resultDiv = document.getElementById('result');
+
+        // 手動強制播放測試功能
+        document.getElementById('forcePlayBtn').onclick = () => {
+            const url = document.getElementById('directVideoUrl').value.trim();
+            if(!url) { alert('請先輸入網址！'); return; }
+            
+            statusDiv.innerText = "🎉 成功手動載入測試影片！";
+            const player = document.getElementById('dreamVideoPlayer');
+            player.src = url;
+            player.load();
+            document.getElementById('videoDisplaySection').style.display = 'block';
+        };
 
         startBtn.onclick = async () => {
             try {
@@ -139,6 +161,7 @@
                     statusDiv.innerText = "❌ 失敗：" + data.error;
                     developBtn.disabled = false;
                     developBtn.style.opacity = "1";
+                    alert(data.error); // 直接跳出警告視窗提示錯誤
                 }
             } catch (e) {
                 statusDiv.innerText = "❌ 網路連線錯誤";
@@ -167,6 +190,7 @@
                             
                             const player = document.getElementById('dreamVideoPlayer');
                             player.src = statusResult.videoUrl;
+                            player.load();
                             document.getElementById('videoDisplaySection').style.display = 'block';
                             
                             developBtn.disabled = false;
