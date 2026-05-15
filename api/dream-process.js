@@ -21,7 +21,7 @@ export default async function handler(req, res) {
       
       const fileStream = fs.createReadStream(audioFile.filepath);
 
-      // --- 1. OpenAI Whisper ---
+      // --- 1. OpenAI Whisper (語音轉文字) ---
       const whisperData = new FormData();
       whisperData.append('file', fileStream, { filename: 'dream.webm' });
       whisperData.append('model', 'whisper-1');
@@ -38,8 +38,9 @@ export default async function handler(req, res) {
       const whisperResult = await whisperRes.json();
       const rawText = whisperResult.text || "（未辨識到內容）";
 
-      // --- 2. Google Gemini (改回穩定版 pro 並使用 v1 網址) ---
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      // --- 2. Google Gemini (修正網址為 v1beta 以支援 1.5 Pro 模型) ---
+      // 修正重點：將網址中的 /v1/ 改成 /v1beta/
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
