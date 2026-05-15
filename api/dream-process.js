@@ -1,60 +1,17 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import crypto from 'crypto'; // 引入 Node.js 內建的加密模組
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// Kling 官方規定必須使用的 JWT / 簽章生成函式
+// 簡化版的 Kling 驗證：直接支援新版 sk- 開頭的金鑰
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
-  try {
-    // 1. 將 Kling 的金鑰拆解成 accessKeyId 與 secretAccessKey
-    const [accessKeyId, secretAccessKey] = apiKey.split('.');
-    if (!accessKeyId || !secretAccessKey) return `Bearer ${apiKey}`;
-
-    // 2. 準備官方規定的標準 Header 內容
-    const header = { alg: 'HS256', typ: 'JWT' };
-    
-    // 3. 準備 Payload（設定 5 分鐘後過期）
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-      iss: accessKeyId,
-      exp: now + 300,
-      nbf: now - 5
-    };
-
-    // 4. 將 Header 與 Payload 轉為 Base64Url 編碼
-    const base64UrlEncode = (obj) => {
-      return Buffer.from(JSON.stringify(obj))
-        .toString('base64')
-        .replace(/=/g, '')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_');
-    };
-
-    const encodedHeader = base64UrlEncode(header);
-    const encodedPayload = base64UrlEncode(payload);
-    const tokenData = `${encodedHeader}.${encodedPayload}`;
-
-    // 5. 使用 secretAccessKey 進行 HMAC-SHA256 加密簽名
-    const signature = crypto
-      .createHmac('sha256', secretAccessKey)
-      .update(tokenData)
-      .digest('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-
-    // 6. 組合出最終符合 Kling 規格的 Token
-    return `${tokenData}.${signature}`;
-  } catch (e) {
-    console.error("生成 Kling 驗證失敗，降級回傳統 Bearer:", e);
-    return `Bearer ${apiKey}`;
-  }
+  // 如果已經是 Bearer 開頭就直接回傳，否則自動加上 Bearer
+  return apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
 }
 
 export default async function handler(req, res) {
@@ -128,7 +85,7 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 使用全新的 Kling 加密認證機制
+        // 使用新版 Kling 直連認證機制
         const klingAuth = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
@@ -146,7 +103,6 @@ export default async function handler(req, res) {
         });
         const klingData = await klingRes.json();
         
-        // 增加一個除錯機制，如果 Kling 回傳錯誤，直接顯示在網頁上
         if (klingData.code && klingData.code !== 0) {
           throw new Error(`Kling 錯誤 [${klingData.code}]: ${klingData.message}`);
         }
@@ -177,7 +133,6 @@ export default async function handler(req, res) {
         
         const status = checkData.data?.task_status;
         
-        // 抓取 Kling 吐出來的最終網址
         let videoUrl = "";
         if (checkData.data?.task_result?.videos && checkData.data.task_result.videos.length > 0) {
           videoUrl = checkData.data.task_result.videos[0].url || "";
@@ -195,4 +150,4 @@ export default async function handler(req, res) {
       return res.status(500).json({ success: false, error: error.message });
     }
   });
-}
+}s
