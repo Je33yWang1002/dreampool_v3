@@ -9,22 +9,20 @@ const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 🔥【核心大修正】真正符合 Kling 官方規定的動態加密簽章演算法
+// 🔥【精確切分修正】Kling 官方標準動態 Token 演算法
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
     let accessKeyId = '';
     let secretAccessKey = '';
 
-    // 針對你提供的純字串格式進行精確切分 (前半段19碼，後半段16碼)
-    // 密鑰範例: sk-11c0717a842d43b4 b2ed3977528f95f3
+    // 密鑰全長 35 字元：sk- (3字) + 16字 (前半) + 16字 (後半)
     if (apiKey.startsWith('sk-') && apiKey.length === 35) {
-      accessKeyId = apiKey.substring(0, 19);     // 取得 sk-11c0717a842d43b4
-      secretAccessKey = apiKey.substring(19);    // 取得 b2ed3977528f95f3
+      accessKeyId = apiKey.substring(0, 19);     // 精確切出前 19 字: "sk-11c0717a842d43b4"
+      secretAccessKey = apiKey.substring(19);    // 精確切出後 16 字: "b2ed3977528f95f3"
     } else if (apiKey.includes('.')) {
       [accessKeyId, secretAccessKey] = apiKey.split('.');
     } else {
-      // 萬一不符合，降級回傳統 Bearer 嘗試
       return `Bearer ${apiKey}`;
     }
 
@@ -48,17 +46,17 @@ function getKlingAuthHeader(apiKey) {
     const encodedPayload = base64UrlEncode(payload);
     const tokenData = `${encodedHeader}.${encodedPayload}`;
 
-    // 使用後半段的 secretAccessKey 進行軍事級 HMAC-SHA256 加密
+    // 使用精確的後半段 16 位密碼進行 HMAC-SHA256 加密
     const signature = crypto
-      .createHmac('sha256', secretAccessKey)
+      .createHmac('sha256', secretAccessKey.trim())
       .update(tokenData)
       .digest('base64')
       .replace(/=/g, '')
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
-    // 這才是 Kling 天衣無縫的認證萬用鑰匙
-    return `${tokenData}.${signature}`;
+    // 🔥 確保最終輸出的開頭絕對帶有 "Bearer " 滿足 Kling 1002 錯誤的要求
+    return `Bearer ${tokenData}.${signature}`;
   } catch (e) {
     console.error("Kling 簽章計算失敗:", e);
     return `Bearer ${apiKey}`;
@@ -148,7 +146,7 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 計算當下的動態 Token
+        // 計算帶有 Bearer 前綴的正確動態加密 Token
         const klingAuthToken = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
