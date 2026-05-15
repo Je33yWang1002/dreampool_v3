@@ -1,6 +1,7 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
+import FormData from 'form-data';
 
 export const config = { api: { bodyParser: false } };
 
@@ -11,36 +12,48 @@ export default async function handler(req, res) {
       const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
       if (!audioFile) throw new Error("錄音檔讀取失敗");
 
-      // 讀取錄音檔並轉成 Base64 編碼（這是 Gemini 讀取二進位檔案的方式）
-      const audioBase64 = fs.readFileSync(audioFile.filepath).toString('base64');
+      // --- 步驟 A: 傳送到 Whisper API ---
+      const whisperForm = new FormData();
+      // 從暫存路徑讀取檔案並建立 Stream
+      whisperForm.append('file', fs.createReadStream(audioFile.filepath), {
+        filename: 'audio.webm',
+        contentType: 'audio/webm',
+      });
+      whisperForm.append('model', 'whisper-1');
 
-      // --- 這裡改用 Gemini 同時處理 聽力 + 導演任務 ---
+      const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          ...whisperForm.getHeaders()
+        },
+        body: whisperForm
+      });
+
+      const whisperData = await whisperRes.json();
+      if (whisperData.error) throw new Error("Whisper 辨識失敗: " + whisperData.error.message);
+      
+      const rawText = whisperData.text;
+
+      // --- 步驟 B: 傳送到 Gemini 生成 Prompt ---
       const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ 
-            parts: [
-              { inline_data: { mime_type: "audio/webm", data: audioBase64 } },
-              { text: "你是一位精通心理學的電影導演。請先聽這段錄音內容，然後執行：1.將語音轉為繁體中文逐字稿。2.根據內容寫出一段高品質的英文影片提示詞(Video Prompt)。3.提取3個情緒標籤。請只回傳 JSON：{\"rawTranscript\": \"逐字稿內容\", \"videoPrompt\": \"英文指令\", \"tags\": [\"標籤1\", \"標籤2\"]}" }
-            ] 
+            parts: [{ text: `你是一位電影導演。請將以下夢境文本轉換成一段高品質的英文影片提示詞(Video Prompt)，並提取3個情緒標籤。請只回傳 JSON 格式：{"videoPrompt": "...", "tags": ["標籤1", "標籤2"]}。夢境內容：${rawText}` }] 
           }],
           generationConfig: { responseMimeType: "application/json" }
         })
       });
 
       const geminiData = await geminiRes.json();
-      
-      if (!geminiData.candidates) {
-        throw new Error("Gemini 沒反應，請檢查 API Key 是否正確");
-      }
-
       const aiResponse = JSON.parse(geminiData.candidates[0].content.parts[0].text);
 
-      // --- 回傳給你的網頁 ---
+      // --- 步驟 C: 回傳給前端 ---
       res.status(200).json({
         success: true,
-        rawTranscript: aiResponse.rawTranscript,
+        rawTranscript: rawText,
         videoPrompt: aiResponse.videoPrompt,
         tags: aiResponse.tags
       });
@@ -50,3 +63,4 @@ export default async function handler(req, res) {
     }
   });
 }
+s
