@@ -3,64 +3,79 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 
-export const config = { api: { bodyParser: false } };
+export const config = {
+  api: { bodyParser: false }, 
+};
 
 export default async function handler(req, res) {
-  const form = new IncomingForm();
-  form.parse(req, async (err, fields, files) => {
-    try {
-      const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
-      if (!audioFile) throw new Error("錄音檔讀取失敗");
+  if (req.method !== 'POST') return res.status(405).json({ error: "Method not allowed" });
 
-      // --- 步驟 A: 傳送到 Whisper API ---
-      const whisperForm = new FormData();
-      // 從暫存路徑讀取檔案並建立 Stream
-      whisperForm.append('file', fs.createReadStream(audioFile.filepath), {
-        filename: 'audio.webm',
-        contentType: 'audio/webm',
-      });
-      whisperForm.append('model', 'whisper-1');
+  const form = new IncomingForm();
+
+  form.parse(req, async (err, fields, files) => {
+    if (err) return res.status(500).json({ error: "檔案解析失敗" });
+
+    try {
+      // 取得錄音檔
+      const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
+      if (!audioFile) throw new Error("沒收到錄音檔案");
+      
+      const fileStream = fs.createReadStream(audioFile.filepath);
+
+      // --- 1. Whisper 語音轉文字 ---
+      const whisperData = new FormData();
+      whisperData.append('file', fileStream, { filename: 'dream.webm' });
+      whisperData.append('model', 'whisper-1');
 
       const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
-        headers: {
+        headers: { 
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          ...whisperForm.getHeaders()
+          ...whisperData.getHeaders() 
         },
-        body: whisperForm
+        body: whisperData
       });
 
-      const whisperData = await whisperRes.json();
-      if (whisperData.error) throw new Error("Whisper 辨識失敗: " + whisperData.error.message);
-      
-      const rawText = whisperData.text;
+      // 檢查 Whisper 是否報錯
+      if (!whisperRes.ok) {
+          const errorMsg = await whisperRes.text();
+          throw new Error(`Whisper API 錯誤: ${errorMsg}`);
+      }
 
-      // --- 步驟 B: 傳送到 Gemini 生成 Prompt ---
+      const whisperResult = await whisperRes.json();
+      const rawText = whisperResult.text || "（未能辨識出語音內容）";
+
+      // --- 2. Gemini 生成指令 ---
       const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ 
-            parts: [{ text: `你是一位電影導演。請將以下夢境文本轉換成一段高品質的英文影片提示詞(Video Prompt)，並提取3個情緒標籤。請只回傳 JSON 格式：{"videoPrompt": "...", "tags": ["標籤1", "標籤2"]}。夢境內容：${rawText}` }] 
+            parts: [{ text: `你是一位超現實導演。請將夢境轉為 Luma AI 影片指令。格式：{"videoPrompt": "...", "tags": ["標籤1"]}。夢境內容：${rawText}` }] 
           }],
           generationConfig: { responseMimeType: "application/json" }
         })
       });
 
-      const geminiData = await geminiRes.json();
-      const aiResponse = JSON.parse(geminiData.candidates[0].content.parts[0].text);
+      const geminiResult = await geminiRes.json();
+      
+      let structuredData = { videoPrompt: "無法生成指令", tags: ["未知"] };
+      if (geminiResult.candidates && geminiResult.candidates[0].content.parts[0].text) {
+          structuredData = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
+      }
 
-      // --- 步驟 C: 回傳給前端 ---
-      res.status(200).json({
+      // --- 3. 回傳結果 ---
+      return res.status(200).json({
         success: true,
         rawTranscript: rawText,
-        videoPrompt: aiResponse.videoPrompt,
-        tags: aiResponse.tags
+        videoPrompt: structuredData.videoPrompt,
+        tags: structuredData.tags
       });
 
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      console.error(error);
+      // 這邊把錯誤傳給前端，讓你能在網頁上直接看到訊息
+      return res.status(500).json({ success: false, error: error.message });
     }
   });
 }
-s
