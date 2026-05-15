@@ -26,7 +26,8 @@ export default async function handler(req, res) {
       whisperData.append('file', fileStream, { filename: 'dream.webm' });
       whisperData.append('model', 'whisper-1');
 
-      const whisperRes = await fetch('[https://api.openai.com/v1/audio/transcriptions](https://api.openai.com/v1/audio/transcriptions)', {
+      // 修正處：確保網址是純文字，沒有任何中括號或連結符號
+      const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -68,19 +69,16 @@ export default async function handler(req, res) {
           let rawGeminiText = geminiResult.candidates[0].content.parts[0].text;
           
           try {
-              // 強力清洗：移除所有可能干擾 JSON 解析的符號
               let cleanText = rawGeminiText
                                 .replace(/```json/g, '')
                                 .replace(/```/g, '')
                                 .trim();
               structuredData = JSON.parse(cleanText);
           } catch (parseError) {
-              // 如果還是失敗，就把 AI 吐出的原始文字直接當作指令顯示，不讓畫面空白
               structuredData.videoPrompt = rawGeminiText;
           }
       }
 
-      // --- 3. 回傳給網頁前端 ---
       return res.status(200).json({
         success: true,
         rawTranscript: rawText,
