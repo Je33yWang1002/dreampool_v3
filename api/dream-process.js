@@ -1,7 +1,6 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import FormData from 'form-data';
 
 export const config = {
   api: { bodyParser: false }, 
@@ -23,52 +22,60 @@ export default async function handler(req, res) {
 
       // --- 1. OpenAI Whisper (語音轉文字) ---
       const whisperData = new FormData();
-      whisperData.append('file', fileStream, { filename: 'dream.webm' });
-      whisperData.append('model', 'whisper-1');
+      // 這裡需要手動引入或是確保環境支援，因為原本是用外部套件，保持邏輯一致
+      const FormDataNode = await import('form-data').then(m => m.default);
+      const fd = new FormDataNode();
+      fd.append('file', fileStream, { filename: 'dream.webm' });
+      fd.append('model', 'whisper-1');
 
       const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          ...whisperData.getHeaders() 
+          ...fd.getHeaders() 
         },
-        body: whisperData
+        body: fd
       });
 
       const whisperResult = await whisperRes.json();
       const rawText = whisperResult.text || "（未辨識到內容）";
 
-      // --- 2. Google Gemini (修正網址為 v1beta 以支援 1.5 Pro 模型) ---
-      // 修正重點：將網址中的 /v1/ 改成 /v1beta/
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      // --- 2. OpenAI GPT-4o (生成影片指令與標籤) ---
+      const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          contents: [{ 
-            parts: [{ text: `你是一位影片導演。請針對夢境內容：「${rawText}」，寫一段 50 字內的英文影片描述指令 (Video Prompt)。直接輸出文字，不要任何格式。` }] 
-          }]
+          model: "gpt-4o",
+          messages: [
+            { 
+              role: "system", 
+              content: "你是一位夢境分析師與影片導演。請將夢境描述轉化為一段英文影片指令 (Video Prompt)，並提取3個情緒標籤。" 
+            },
+            { 
+              role: "user", 
+              content: `夢境內容：${rawText}。請回傳 JSON 格式：{"prompt": "英文描述", "tags": ["標籤1", "標籤2", "標籤3"]}` 
+            }
+          ],
+          response_format: { type: "json_object" }
         })
       });
 
-      const geminiData = await geminiRes.json();
-      
-      let finalPrompt = "無法生成指令";
-      
-      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
-          finalPrompt = geminiData.candidates[0].content.parts[0].text.trim();
-      } else if (geminiData.error) {
-          finalPrompt = "API 錯誤: " + geminiData.error.message;
-      }
+      const chatData = await chatRes.json();
+      const aiContent = JSON.parse(chatData.choices[0].message.content);
 
       // --- 3. 回傳結果 ---
       return res.status(200).json({
         success: true,
         rawTranscript: rawText,
-        videoPrompt: finalPrompt,
-        tags: ["夢境分析", "自動生成"]
+        videoPrompt: aiContent.prompt,
+        tags: aiContent.tags
       });
 
     } catch (error) {
+      console.error("OpenAI Error:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
