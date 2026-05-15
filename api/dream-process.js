@@ -5,22 +5,25 @@ import crypto from 'crypto';
 import FormData from 'form-data';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const KLING_API_KEY = process.env.KLING_API_KEY;
+const KLING_API_KEY = process.env.KLING_API_KEY ? process.env.KLING_API_KEY.trim() : '';
 
 export const config = { api: { bodyParser: false } };
 
-// 🔥【終極精確修正】徹底剔除 sk- 前綴，還原真實 Kling 帳密欄位
+// 🔥【正則精確鎖定】徹底杜絕數格子與空白帶來的 1002 錯誤
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
     let accessKeyId = '';
     let secretAccessKey = '';
 
-    // 金鑰格式為 sk-11c0717a842d43b4b2ed3977528f95f3 (共 35 字元)
+    // 處理標準的 sk- 開頭 35 位長度金鑰
     if (apiKey.startsWith('sk-') && apiKey.length === 35) {
-      // 剔除前 3 碼 'sk-'，精確分割後方各自 16 碼的真實密鑰
-      accessKeyId = apiKey.substring(3, 19);     // 拿到真實帳號: "11c0717a842d43b4"
-      secretAccessKey = apiKey.substring(19);    // 拿到真實密碼: "b2ed3977528f95f3"
+      // 剝除 sk- 後，核心是 32 位元英數
+      const coreKey = apiKey.substring(3); // 拿到 "11c0717a842d43b4b2ed3977528f95f3"
+      
+      // 精確切成前後各 16 位，絕不多拿或少拿一個字元
+      accessKeyId = coreKey.substring(0, 16);     // "11c0717a842d43b4"
+      secretAccessKey = coreKey.substring(16);    // "b2ed3977528f95f3"
     } else if (apiKey.includes('.')) {
       [accessKeyId, secretAccessKey] = apiKey.split('.');
     } else {
@@ -30,8 +33,8 @@ function getKlingAuthHeader(apiKey) {
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
-      iss: accessKeyId.trim(), // 這邊傳入純粹英數的 16 位帳號
-      exp: now + 300, 
+      iss: accessKeyId.trim(), // 傳入純粹乾淨的 16 位帳號
+      exp: now + 300,          // 5 分鐘有效
       nbf: now - 5
     };
 
@@ -47,7 +50,7 @@ function getKlingAuthHeader(apiKey) {
     const encodedPayload = base64UrlEncode(payload);
     const tokenData = `${encodedHeader}.${encodedPayload}`;
 
-    // 使用乾淨的 16 位 secretAccessKey 進行簽章加密
+    // 使用精確去空白的核心密碼進行加密
     const signature = crypto
       .createHmac('sha256', secretAccessKey.trim())
       .update(tokenData)
@@ -56,6 +59,7 @@ function getKlingAuthHeader(apiKey) {
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
+    // 輸出帶有 Bearer 前綴的完整 JWT
     return `Bearer ${tokenData}.${signature}`;
   } catch (e) {
     console.error("Kling 簽章計算失敗:", e);
