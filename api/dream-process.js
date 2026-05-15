@@ -12,12 +12,17 @@ export default async function handler(req, res) {
     if (err) return res.status(500).json({ error: "解析失敗" });
 
     try {
-      const isDevelopMode = fields.mode === 'develop';
+      // 修正：相容不同的 formidable 版本讀取檔案路徑
+      const isDevelopMode = fields.mode === 'develop' || fields.mode?.[0] === 'develop';
 
-      // --- 階段一：語音轉種子 (Whisper) ---
+      // --- 階段一：語音轉種子 ---
       if (!isDevelopMode) {
         const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
-        const fileStream = fs.createReadStream(audioFile.filepath);
+        if (!audioFile) throw new Error("找不到錄音檔案");
+        
+        const filePath = audioFile.filepath || audioFile.path;
+        const fileStream = fs.createReadStream(filePath);
+        
         const FormDataNode = await import('form-data').then(m => m.default);
         const fd = new FormDataNode();
         fd.append('file', fileStream, { filename: 'dream.webm' });
@@ -48,10 +53,12 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
 
       } else {
-        // --- 階段二：夢境沖洗 (GPT 生成指令 + Kling AI 生成影片) ---
-        const seeds = JSON.parse(fields.seeds);
+        // --- 階段二：使用 Kling AI 生成影片 ---
+        // 這裡我們直接使用你提供的 API Key
+        const KLING_KEY = "sk-11c0717a842d43b4b2ed3977528f95f3";
+        const seeds = typeof fields.seeds === 'string' ? JSON.parse(fields.seeds) : JSON.parse(fields.seeds[0]);
         
-        // 1. 先叫 GPT 寫出英文 Prompt
+        // 1. 叫 GPT 寫出英文 Prompt
         const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -67,11 +74,11 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 2. 拿著 Prompt 去敲 Kling AI 的門
+        // 2. 請求 Kling AI (使用最新標準 API 格式)
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${process.env.KLING_API_KEY}`,
+            'Authorization': `Bearer ${KLING_KEY}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -83,13 +90,12 @@ export default async function handler(req, res) {
         });
         const klingData = await klingRes.json();
 
-        // 回傳給前端 (包含影片任務 ID，因為 Kling 需要時間跑，我們先拿 ID 以後查詢)
         return res.status(200).json({ 
           success: true, 
           videoPrompt: prompt, 
           tags: tags,
-          taskId: klingData.data?.task_id || null,
-          message: "影片正在生成中，預計需要 2 分鐘..." 
+          taskId: klingData.data?.task_id || "任務已提交",
+          message: "影片生成中，請至 Kling 官網後台查看"
         });
       }
     } catch (error) {
