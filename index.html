@@ -6,22 +6,17 @@
     <title>🎬 潛意識電影院 PoC</title>
     <style>
         body { font-family: -apple-system, "BlinkMacSystemFont", "Segoe UI", Roboto, sans-serif; text-align: center; padding: 50px 20px; background: #1a1a1a; color: white; line-height: 1.6; }
-        h1 { margin-bottom: 10px; }
         .description { color: #aaa; margin-bottom: 40px; }
-        
         .controls { margin-bottom: 40px; }
-        button { padding: 15px 40px; font-size: 18px; font-weight: bold; cursor: pointer; border-radius: 50px; border: none; margin: 10px; transition: transform 0.2s, background 0.2s; }
-        button:active { transform: scale(0.95); }
-        
+        button { padding: 15px 40px; font-size: 18px; font-weight: bold; cursor: pointer; border-radius: 50px; border: none; margin: 10px; transition: transform 0.2s; }
         #start { background: #ff4757; color: white; }
-        #start:hover { background: #ff6b81; }
         #stop { background: #2f3542; color: white; border: 2px solid #57606f; }
-        
-        #status { margin: 20px 0; color: #ffd32a; font-weight: bold; min-height: 1.5em; }
-        
-        #result { max-width: 600px; margin: 20px auto; text-align: left; background: #2f3542; padding: 30px; border-radius: 15px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #status { margin: 20px 0; color: #ffd32a; font-weight: bold; }
+        #result { max-width: 600px; margin: 20px auto; text-align: left; background: #2f3542; padding: 30px; border-radius: 15px; display: none; }
         .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; font-size: 14px; }
         .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; word-break: break-all; margin-top: 10px; }
+        .seed-list { list-style: none; padding: 0; color: #ced4da; }
+        .seed-list li { margin-bottom: 5px; border-bottom: 1px solid #3d4451; padding-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -37,10 +32,13 @@
 
     <div id="result">
         <h2 style="color:#ff4757; margin-top:0;">✨ 解夢分析完成</h2>
-        <p><strong>原始夢境內容：</strong></p>
-        <div id="rawText" style="color: #ced4da; margin-bottom: 20px;"></div>
+        <p><strong>【原始夢境】</strong></p>
+        <div id="rawText" style="color: #aaa; margin-bottom: 20px;"></div>
+
+        <p><strong>【夢境種子】</strong></p>
+        <ul id="seedList" class="seed-list"></ul>
         
-        <p><strong>AI 影片指令 (Video Prompt)：</strong></p>
+        <p style="margin-top:20px;"><strong>AI 影片指令 (Video Prompt)：</strong></p>
         <div id="videoPrompt" class="prompt-box"></div>
         
         <p style="margin-top:20px;"><strong>情緒標籤：</strong></p>
@@ -56,74 +54,60 @@
         const statusDiv = document.getElementById('status');
         const resultDiv = document.getElementById('result');
 
-        // 點擊「開始說話」
         startBtn.onclick = async () => {
             try {
-                // 1. 請求麥克風權限
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // 2. 設定錄音格式
                 mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                chunks = []; // 清空之前的資料
+                chunks = [];
                 
-                mediaRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) chunks.push(e.data);
-                };
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
                 
-                // 3. 當錄音停止時執行的動作
                 mediaRecorder.onstop = async () => {
                     statusDiv.innerHTML = "⌛ 正在解析語音中，請稍候...";
-                    
                     const blob = new Blob(chunks, { type: 'audio/webm' });
                     const formData = new FormData();
                     formData.append('file', blob, 'dream.webm');
 
-                    try {
-                        // 呼叫你的 Vercel 後端 API
-                        const response = await fetch('/api/dream-process', { 
-                            method: 'POST', 
-                            body: formData 
-                        });
-                        
-                        const result = await response.json();
+                    const response = await fetch('/api/dream-process', { method: 'POST', body: formData });
+                    const result = await response.json();
 
-                        if (result.success) {
-                            statusDiv.innerText = "✅ 分析成功！";
-                            resultDiv.style.display = 'block';
-                            document.getElementById('rawText').innerText = result.rawTranscript;
-                            document.getElementById('videoPrompt').innerText = result.videoPrompt;
-                            
-                            const tagContainer = document.getElementById('tagContainer');
-                            tagContainer.innerHTML = result.tags.map(t => `<span class="tag">#${t}</span>`).join('');
-                        } else {
-                            statusDiv.innerText = "❌ 發生錯誤：" + result.error;
-                            console.error("API Error:", result.error);
-                        }
-                    } catch (err) {
-                        statusDiv.innerText = "❌ 連線失敗，請檢查網路或 Vercel 後端設定";
+                    if (result.success) {
+                        statusDiv.innerText = "✅ 分析成功！";
+                        resultDiv.style.display = 'block';
+                        document.getElementById('rawText').innerText = result.rawTranscript;
+                        
+                        // 填入夢境種子
+                        const s = result.seeds;
+                        document.getElementById('seedList').innerHTML = `
+                            <li>• 場景：${s.scene}</li>
+                            <li>• 情緒：${s.mood}</li>
+                            <li>• 人物：${s.character}</li>
+                            <li>• 顏色：${s.color}</li>
+                            <li>• 感受：${s.feeling}</li>
+                            <li>• 重複元素：${s.elements}</li>
+                        `;
+
+                        document.getElementById('videoPrompt').innerText = result.videoPrompt;
+                        document.getElementById('tagContainer').innerHTML = result.tags.map(t => `<span class="tag">#${t}</span>`).join('');
+                    } else {
+                        statusDiv.innerText = "❌ 錯誤：" + result.error;
                     }
                 };
 
-                // 4. 正式開始錄音
                 mediaRecorder.start();
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
-                statusDiv.innerHTML = "🔴 <span style='color:#ff4757'>正在錄音中...</span> 請大聲描述你的夢境";
-                resultDiv.style.display = 'none'; // 重新錄音時隱藏上次結果
-
+                statusDiv.innerHTML = "🔴 <span style='color:#ff4757'>正在錄音中...</span>";
+                resultDiv.style.display = 'none';
             } catch (err) {
-                console.error("Microphone Error:", err);
-                statusDiv.innerHTML = "❌ <span style='color:white'>無法使用麥克風</span><br><small>請確認是否已允許瀏覽器存取麥克風權限</small>";
+                statusDiv.innerHTML = "❌ 無法使用麥克風";
             }
         };
 
-        // 點擊「說完了」
         stopBtn.onclick = () => {
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
-                // 停止麥克風軌道，省電且關閉瀏覽器錄音圖示
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                
                 stopBtn.style.display = 'none';
                 startBtn.style.display = 'inline-block';
                 startBtn.innerText = "重新錄製夢境";
