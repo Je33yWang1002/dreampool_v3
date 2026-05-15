@@ -2,67 +2,173 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>潛意識電影院 PoC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎬 潛意識電影院 PoC</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a1a; color: white; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 30px; border: none; margin: 10px; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            text-align: center; 
+            padding: 50px 20px; 
+            background: #1a1a1a; 
+            color: white; 
+            line-height: 1.6;
+        }
+        h1 { margin-bottom: 10px; }
+        .description { color: #aaa; margin-bottom: 30px; }
+        
+        /* 按鈕樣式 */
+        .controls { margin-bottom: 40px; }
+        button { 
+            padding: 15px 40px; 
+            font-size: 18px; 
+            font-weight: bold;
+            cursor: pointer; 
+            border-radius: 50px; 
+            border: none; 
+            margin: 10px; 
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         #start { background: #ff4757; color: white; }
         #stop { background: #2f3542; color: white; }
-        #result { margin-top: 30px; text-align: left; background: #2f3542; padding: 20px; border-radius: 10px; display: none; }
+        
+        /* 狀態文字 */
+        #status { margin: 20px 0; color: #ffd32a; font-weight: bold; }
+
+        /* 結果區塊 */
+        #result { 
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: left; 
+            background: #2f3542; 
+            padding: 30px; 
+            border-radius: 15px; 
+            display: none; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .result-item { margin-bottom: 20px; }
+        .result-item strong { display: block; color: #747d8c; font-size: 14px; margin-bottom: 5px; }
+        .result-item span { font-size: 18px; color: #ffffff; }
+        .tag { 
+            display: inline-block; 
+            background: #57606f; 
+            padding: 4px 12px; 
+            border-radius: 5px; 
+            margin-right: 8px; 
+            font-size: 14px; 
+        }
     </style>
 </head>
 <body>
     <h1>🎬 潛意識電影院</h1>
-    <p>按住開始說出你的夢境...</p>
-    <button id="start">開始錄夢</button>
-    <button id="stop" disabled>說完了</button>
+    <p class="description">按住「開始錄夢」說出你的夢境，放開後自動解夢...</p>
+    
+    <div class="controls">
+        <button id="start">開始錄夢</button>
+        <button id="stop" disabled>說完了</button>
+    </div>
+
     <div id="status"></div>
 
     <div id="result">
-        <h3>分析結果：</h3>
-        <p><strong>原始文字：</strong> <span id="rawText"></span></p>
-        <p><strong>影片指令：</strong> <span id="videoPrompt"></span></p>
-        <p><strong>情緒標籤：</strong> <span id="tags"></span></p>
+        <h2 style="margin-top:0; color:#ff4757;">解夢分析完成</h2>
+        
+        <div class="result-item">
+            <strong>原始夢境文本 (Whisper)</strong>
+            <span id="rawText"></span>
+        </div>
+
+        <div class="result-item">
+            <strong>AI 影片提示詞 (Video Prompt)</strong>
+            <span id="videoPrompt" style="font-style: italic; color: #70a1ff;"></span>
+        </div>
+
+        <div class="result-item">
+            <strong>情緒與元素標籤</strong>
+            <div id="tagContainer"></div>
+        </div>
     </div>
 
     <script>
         let chunks = [];
         let mediaRecorder;
 
-        document.getElementById('start').onclick = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.ondataavailable = e => chunks.push(e.data);
-            mediaRecorder.onstop = async () => {
-                const blob = new Blob(chunks, { type: 'audio/webm' });
-                const formData = new FormData();
-                formData.append('file', blob, 'dream.webm');
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
 
-                document.getElementById('status').innerText = '正在讀取夢境數據...';
-                document.getElementById('result').style.display = 'none';
+        startBtn.onclick = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
                 
-                const response = await fetch('/api/dream-process', {
-                    method: 'POST',
-                    body: formData
-                });
+                mediaRecorder.ondataavailable = e => chunks.push(e.data);
                 
-                const result = await response.json();
-                document.getElementById('status').innerText = '解夢完成！';
-                document.getElementById('result').style.display = 'block';
-                document.getElementById('rawText').innerText = result.rawTranscript;
-                document.getElementById('videoPrompt').innerText = result.videoPrompt;
-                document.getElementById('tags').innerText = result.tags.join(', ');
-            };
-            mediaRecorder.start();
-            document.getElementById('start').disabled = true;
-            document.getElementById('stop').disabled = false;
-            chunks = [];
+                mediaRecorder.onstop = async () => {
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append('file', blob, 'dream.webm');
+
+                    statusDiv.innerText = '正在傳送數據至後端加工廠...';
+                    resultDiv.style.display = 'none';
+                    
+                    try {
+                        // 注意：路徑改為 /api/dream-process 以符合 Vercel 規範
+                        const response = await fetch('/api/dream-process', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const result = await response.json();
+
+                        if (result.success) {
+                            statusDiv.innerText = '✨ 解夢成功！';
+                            resultDiv.style.display = 'block';
+                            
+                            // 填入資料
+                            document.getElementById('rawText').innerText = result.rawTranscript || "未能辨識文字";
+                            document.getElementById('videoPrompt').innerText = result.videoPrompt || "未能生成指令";
+                            
+                            // 處理標籤
+                            const tagContainer = document.getElementById('tagContainer');
+                            tagContainer.innerHTML = ''; // 清空舊標籤
+                            if (result.tags && result.tags.length > 0) {
+                                result.tags.forEach(tag => {
+                                    const span = document.createElement('span');
+                                    span.className = 'tag';
+                                    span.innerText = '#' + tag;
+                                    tagContainer.appendChild(span);
+                                });
+                            } else {
+                                tagContainer.innerText = '無標籤';
+                            }
+                        } else {
+                            statusDiv.innerText = '❌ 發生錯誤：' + (result.error || '未知錯誤');
+                        }
+                    } catch (err) {
+                        statusDiv.innerText = '❌ 無法連線到後端，請確認 Vercel 部署狀態';
+                        console.error(err);
+                    }
+                };
+
+                mediaRecorder.start();
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusDiv.innerText = '🔴 正在傾聽你的夢境...';
+                chunks = [];
+            } catch (err) {
+                statusDiv.innerText = '❌ 麥克風啟動失敗，請檢查權限設定';
+            }
         };
 
-        document.getElementById('stop').onclick = () => {
-            mediaRecorder.stop();
-            document.getElementById('start').disabled = false;
-            document.getElementById('stop').disabled = true;
+        stopBtn.onclick = () => {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                statusDiv.innerText = '⏸ 錄音結束，開始分析...';
+            }
         };
     </script>
 </body>
