@@ -10,12 +10,11 @@
         .seed-row { display: flex; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 8px; }
         .seed-label { width: 85px; color: #ff4757; font-weight: bold; font-size: 14px; }
         .seed-input { background: transparent; border: none; color: #fff; width: 100%; font-size: 16px; outline: none; }
-        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; white-space: pre-wrap; word-break: break-all; }
+        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; }
         .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
         button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; }
         #start { background: #ff4757; color: white; }
         #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
-        video { width: 100%; border-radius: 10px; margin-top: 20px; border: 2px solid #ffd32a; display: block; }
     </style>
 </head>
 <body>
@@ -29,20 +28,19 @@
         <div id="rawText" style="color:#aaa; margin-bottom:20px; font-style: italic;"></div>
 
         <p><strong>【夢境種子】(可手動補強)</strong></p>
-        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="等待分析..."></div>
-        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="等待分析..."></div>
-        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="等待分析..."></div>
-        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="等待分析..."></div>
-        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="等待分析..."></div>
+        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="點擊填寫..."></div>
         
-        <button id="developBtn">🎞️ 夢境沖洗 (等待約 2 分鐘)</button>
+        <button id="developBtn">🎞️ 夢境沖洗 (Kling AI 生成影片)</button>
 
         <div id="finalOutput" style="margin-top:30px; display:none;">
-            <p><strong>🎞️ 夢境影像：</strong></p>
-            <video id="dreamVideo" controls autoplay loop></video>
-            <p style="margin-top:20px;"><strong>AI 影片指令 (Video Prompt)：</strong></p>
+            <p><strong>AI 影片指令 (Video Prompt)：</strong></p>
             <div id="videoPrompt" class="prompt-box"></div>
-            <div id="tagContainer" style="margin-top:10px;"></div>
+            <p style="margin-top:20px;"><strong>情緒標籤：</strong></p>
+            <div id="tagContainer"></div>
         </div>
     </div>
 
@@ -64,24 +62,19 @@
                 const blob = new Blob(chunks, { type: 'audio/webm' });
                 const formData = new FormData();
                 formData.append('file', blob, 'dream.webm');
-
-                try {
-                    const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
-                    const data = await res.json();
-                    if (data.success) {
-                        statusDiv.innerText = "✅ 已提取種子，請修正後點擊「夢境沖洗」";
-                        resultDiv.style.display = 'block';
-                        document.getElementById('rawText').innerText = data.rawTranscript;
-                        
-                        // 修復：將 AI 回傳的英文 key 對應到前端輸入框
-                        document.getElementById('s-scene').value = data.seeds.scene || "";
-                        document.getElementById('s-mood').value = data.seeds.mood || "";
-                        document.getElementById('s-character').value = data.seeds.character || "";
-                        document.getElementById('s-color').value = data.seeds.color || "";
-                        document.getElementById('s-feeling').value = data.seeds.feeling || "";
-                    }
-                } catch (e) {
-                    statusDiv.innerText = "❌ 解析失敗";
+                
+                const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
+                const data = await res.json();
+                
+                if (data.success) {
+                    statusDiv.innerText = "✅ 已提取種子，請修正後點擊「夢境沖洗」";
+                    resultDiv.style.display = 'block';
+                    document.getElementById('rawText').innerText = data.rawTranscript;
+                    document.getElementById('s-scene').value = data.seeds.scene || "";
+                    document.getElementById('s-mood').value = data.seeds.mood || "";
+                    document.getElementById('s-character').value = data.seeds.character || "";
+                    document.getElementById('s-color').value = data.seeds.color || "";
+                    document.getElementById('s-feeling').value = data.seeds.feeling || "";
                 }
             };
             mediaRecorder.start();
@@ -89,3 +82,39 @@
         };
 
         stopBtn.onclick = () => { mediaRecorder.stop(); startBtn.style.display='inline-block'; stopBtn.style.display='none'; };
+
+        developBtn.onclick = async () => {
+            statusDiv.innerText = "🎬 正在啟動 Kling AI 生成夢境影像 (預計 2 分鐘)...";
+            const seeds = {
+                scene: document.getElementById('s-scene').value,
+                mood: document.getElementById('s-mood').value,
+                character: document.getElementById('s-character').value,
+                color: document.getElementById('s-color').value,
+                feeling: document.getElementById('s-feeling').value
+            };
+
+            const formData = new FormData();
+            formData.append('mode', 'develop');
+            formData.append('seeds', JSON.stringify(seeds));
+
+            try {
+                const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.success) {
+                    statusDiv.innerText = "🚀 任務已送達 Kling！影片 ID：" + (data.taskId || "處理中");
+                    document.getElementById('finalOutput').style.display = 'block';
+                    document.getElementById('videoPrompt').innerText = data.videoPrompt;
+                    document.getElementById('tagContainer').innerHTML = 
+                        data.tags.map(t => `<span class="tag">#${t}</span>`).join('') +
+                        `<p style="color:#ffd32a; font-size:14px; margin-top:10px;">⚠️ 影片生成完成後，請至 Kling 後台查看。</p>`;
+                } else {
+                    statusDiv.innerText = "❌ 失敗：" + data.error;
+                }
+            } catch (e) {
+                statusDiv.innerText = "❌ 網路連線錯誤";
+            }
+        };
+    </script>
+</body>
+</html>
