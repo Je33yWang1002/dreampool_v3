@@ -6,43 +6,39 @@
     <title>🎬 潛意識電影院 PoC</title>
     <style>
         body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px 20px; background: #1a1a1a; color: white; }
-        #result { max-width: 600px; margin: 20px auto; text-align: left; background: #2f3542; padding: 30px; border-radius: 15px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #result { max-width: 600px; margin: 20px auto; text-align: left; background: #2f3542; padding: 30px; border-radius: 15px; display: none; }
         .seed-row { display: flex; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 8px; }
         .seed-label { width: 85px; color: #ff4757; font-weight: bold; font-size: 14px; }
         .seed-input { background: transparent; border: none; color: #fff; width: 100%; font-size: 16px; outline: none; }
-        .seed-input::placeholder { color: #57606f; }
-        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; display: none; }
-        .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; font-size: 14px; }
-        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; }
+        .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
+        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; }
         #start { background: #ff4757; color: white; }
-        #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; display: none; }
-        #developBtn:hover { background: #fff; }
+        #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
     </style>
 </head>
 <body>
     <h1>🎬 潛意識電影院</h1>
-    <div class="controls">
-        <button id="start">按一下開始說話</button>
-        <button id="stop" style="display:none; background:#2f3542; color:white;">說完了，解析夢境</button>
-    </div>
+    <button id="start">按一下開始說話</button>
+    <button id="stop" style="display:none; background:#2f3542; color:white;">說完了，解析夢境</button>
     <div id="status" style="margin:20px; color:#ffd32a;">準備就緒</div>
 
     <div id="result">
-        <h2 style="color:#ff4757; margin-top:0;">✨ 夢境初步掃描</h2>
+        <h2 style="color:#ff4757; margin:0 0 20px 0;">✨ 解夢分析完成</h2>
         <div id="rawText" style="color:#aaa; margin-bottom:20px; font-style: italic;"></div>
 
-        <p><strong>【夢境種子】(請修正或補充內容)</strong></p>
-        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="例如：在深夜的游泳池旁..."></div>
-        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="例如：平靜但帶點焦慮..."></div>
-        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="例如：一隻戴著耳機的貓..."></div>
-        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="例如：深藍色、霓虹綠..."></div>
-        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="例如：水滴在皮膚上的冷感..."></div>
+        <p><strong>【夢境種子】(可手動補強)</strong></p>
+        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="點擊填寫..."></div>
         
-        <button id="developBtn">🎞️ 夢境沖洗 (生成 Prompt)</button>
+        <button id="developBtn">🎞️ 夢境沖洗 (生成影片指令)</button>
 
-        <div id="finalOutput" style="margin-top:30px; display:none; border-top: 2px dashed #444; padding-top: 20px;">
+        <div id="finalOutput" style="margin-top:30px; display:none;">
             <p><strong>AI 影片指令 (Video Prompt)：</strong></p>
-            <div id="videoPrompt" class="prompt-box" style="display:block;"></div>
+            <div id="videoPrompt" class="prompt-box"></div>
             <p style="margin-top:20px;"><strong>情緒標籤：</strong></p>
             <div id="tagContainer"></div>
         </div>
@@ -56,14 +52,13 @@
         const statusDiv = document.getElementById('status');
         const resultDiv = document.getElementById('result');
 
-        // 階段一：語音錄製與種子提取
         startBtn.onclick = async () => {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder = new MediaRecorder(stream);
             chunks = [];
             mediaRecorder.ondataavailable = e => chunks.push(e.data);
             mediaRecorder.onstop = async () => {
-                statusDiv.innerText = "⌛ 正在提取夢境種子...";
+                statusDiv.innerText = "⌛ 正在掃描夢境種子...";
                 const blob = new Blob(chunks, { type: 'audio/webm' });
                 const formData = new FormData();
                 formData.append('file', blob, 'dream.webm');
@@ -72,36 +67,25 @@
                 const data = await res.json();
                 
                 if (data.success) {
-                    statusDiv.innerText = "✅ 種子提取完成，請檢查下方內容";
+                    statusDiv.innerText = "✅ 已提取種子，請修正後點擊「夢境沖洗」";
                     resultDiv.style.display = 'block';
-                    document.getElementById('rawText').innerText = `「${data.rawTranscript}」`;
+                    document.getElementById('rawText').innerText = data.rawTranscript;
                     document.getElementById('s-scene').value = data.seeds.scene || "";
                     document.getElementById('s-mood').value = data.seeds.mood || "";
                     document.getElementById('s-character').value = data.seeds.character || "";
                     document.getElementById('s-color').value = data.seeds.color || "";
                     document.getElementById('s-feeling').value = data.seeds.feeling || "";
-                    developBtn.style.display = 'block';
                     document.getElementById('finalOutput').style.display = 'none';
                 }
             };
             mediaRecorder.start();
             startBtn.style.display='none'; stopBtn.style.display='inline-block';
-            statusDiv.innerText = "🔴 正在聽你說夢...";
         };
 
-        stopBtn.onclick = () => {
-            mediaRecorder.stop();
-            mediaRecorder.stream.getTracks().forEach(t => t.stop());
-            startBtn.style.display='inline-block'; stopBtn.style.display='none';
-            startBtn.innerText = "重新錄製";
-        };
+        stopBtn.onclick = () => { mediaRecorder.stop(); startBtn.style.display='inline-block'; stopBtn.style.display='none'; };
 
-        // 階段二：夢境沖洗 (點擊按鈕才生成最終 Prompt)
         developBtn.onclick = async () => {
-            statusDiv.innerText = "🎞️ 正在沖洗夢境影片指令...";
-            developBtn.disabled = true;
-            developBtn.innerText = "沖洗中...";
-
+            statusDiv.innerText = "🎞️ 正在為您沖洗影片指令...";
             const seeds = {
                 scene: document.getElementById('s-scene').value,
                 mood: document.getElementById('s-mood').value,
@@ -118,12 +102,10 @@
             const data = await res.json();
 
             if (data.success) {
-                statusDiv.innerText = "✨ 沖洗完成！";
+                statusDiv.innerText = "✨ 影片指令沖洗完成！";
                 document.getElementById('finalOutput').style.display = 'block';
                 document.getElementById('videoPrompt').innerText = data.videoPrompt;
                 document.getElementById('tagContainer').innerHTML = data.tags.map(t => `<span class="tag">#${t}</span>`).join('');
-                developBtn.disabled = false;
-                developBtn.innerText = "重新沖洗 (更新 Prompt)";
             }
         };
     </script>
