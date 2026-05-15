@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>潛意識電影院 PoC</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a1a; color: white; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 30px; border: none; margin: 10px; }
+        #start { background: #ff4757; color: white; }
+        #stop { background: #2f3542; color: white; }
+        #result { margin-top: 30px; text-align: left; background: #2f3542; padding: 20px; border-radius: 10px; display: none; }
+    </style>
+</head>
+<body>
+    <h1>🎬 潛意識電影院</h1>
+    <p>按住開始說出你的夢境...</p>
+    <button id="start">開始錄夢</button>
+    <button id="stop" disabled>說完了</button>
+    <div id="status"></div>
+
+    <div id="result">
+        <h3>分析結果：</h3>
+        <p><strong>原始文字：</strong> <span id="rawText"></span></p>
+        <p><strong>影片指令：</strong> <span id="videoPrompt"></span></p>
+        <p><strong>情緒標籤：</strong> <span id="tags"></span></p>
+    </div>
+
+    <script>
+        let chunks = [];
+        let mediaRecorder;
+
+        document.getElementById('start').onclick = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('file', blob, 'dream.webm');
+
+                document.getElementById('status').innerText = '正在讀取夢境數據...';
+                document.getElementById('result').style.display = 'none';
+                
+                const response = await fetch('/api/dream-process', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                document.getElementById('status').innerText = '解夢完成！';
+                document.getElementById('result').style.display = 'block';
+                document.getElementById('rawText').innerText = result.rawTranscript;
+                document.getElementById('videoPrompt').innerText = result.videoPrompt;
+                document.getElementById('tags').innerText = result.tags.join(', ');
+            };
+            mediaRecorder.start();
+            document.getElementById('start').disabled = true;
+            document.getElementById('stop').disabled = false;
+            chunks = [];
+        };
+
+        document.getElementById('stop').onclick = () => {
+            mediaRecorder.stop();
+            document.getElementById('start').disabled = false;
+            document.getElementById('stop').disabled = true;
+        };
+    </script>
+</body>
+</html>
