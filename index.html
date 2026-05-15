@@ -5,114 +5,77 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎬 潛意識電影院 PoC</title>
     <style>
-        body { font-family: -apple-system, "BlinkMacSystemFont", "Segoe UI", Roboto, sans-serif; text-align: center; padding: 50px 20px; background: #1a1a1a; color: white; line-height: 1.6; }
-        .description { color: #aaa; margin-bottom: 40px; }
-        .controls { margin-bottom: 40px; }
-        button { padding: 15px 40px; font-size: 18px; font-weight: bold; cursor: pointer; border-radius: 50px; border: none; margin: 10px; transition: transform 0.2s; }
-        #start { background: #ff4757; color: white; }
-        #stop { background: #2f3542; color: white; border: 2px solid #57606f; }
-        #status { margin: 20px 0; color: #ffd32a; font-weight: bold; }
+        body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px 20px; background: #1a1a1a; color: white; }
         #result { max-width: 600px; margin: 20px auto; text-align: left; background: #2f3542; padding: 30px; border-radius: 15px; display: none; }
-        .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; font-size: 14px; }
-        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; word-break: break-all; margin-top: 10px; }
-        .seed-list { list-style: none; padding: 0; color: #ced4da; }
-        .seed-list li { margin-bottom: 5px; border-bottom: 1px solid #3d4451; padding-bottom: 5px; }
+        .seed-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .seed-label { width: 80px; color: #ff4757; font-weight: bold; }
+        .seed-input { background: transparent; border: none; color: #ced4da; width: 100%; font-size: 16px; outline: none; }
+        .seed-input:focus { color: #fff; }
+        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; }
+        .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
+        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; }
+        #start { background: #ff4757; color: white; }
     </style>
 </head>
 <body>
     <h1>🎬 潛意識電影院</h1>
-    <p class="description">說出你的夢境，AI 將為你編導影片...</p>
-    
-    <div class="controls">
-        <button id="start">按一下開始說話</button>
-        <button id="stop" style="display:none;">說完了，開始解夢</button>
-    </div>
-
-    <div id="status">準備就緒</div>
+    <button id="start">按一下開始說話</button>
+    <button id="stop" style="display:none; background:#2f3542; color:white;">說完了，開始解夢</button>
+    <div id="status" style="margin:20px; color:#ffd32a;">準備就緒</div>
 
     <div id="result">
-        <h2 style="color:#ff4757; margin-top:0;">✨ 解夢分析完成</h2>
+        <h2 style="color:#ff4757;">✨ 解夢分析完成</h2>
         <p><strong>【原始夢境】</strong></p>
-        <div id="rawText" style="color: #aaa; margin-bottom: 20px;"></div>
+        <div id="rawText" style="color:#aaa; margin-bottom:20px;"></div>
 
-        <p><strong>【夢境種子】</strong></p>
-        <ul id="seedList" class="seed-list"></ul>
+        <p><strong>【夢境種子】(可手動補寫)</strong></p>
+        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="點擊填寫..."></div>
+        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="點擊填寫..."></div>
         
         <p style="margin-top:20px;"><strong>AI 影片指令 (Video Prompt)：</strong></p>
         <div id="videoPrompt" class="prompt-box"></div>
-        
-        <p style="margin-top:20px;"><strong>情緒標籤：</strong></p>
-        <div id="tagContainer"></div>
+        <div id="tagContainer" style="margin-top:20px;"></div>
     </div>
 
     <script>
-        let chunks = [];
-        let mediaRecorder;
-
+        let chunks = []; let mediaRecorder;
         const startBtn = document.getElementById('start');
         const stopBtn = document.getElementById('stop');
         const statusDiv = document.getElementById('status');
         const resultDiv = document.getElementById('result');
 
         startBtn.onclick = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                chunks = [];
-                
-                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-                
-                mediaRecorder.onstop = async () => {
-                    statusDiv.innerHTML = "⌛ 正在解析語音中，請稍候...";
-                    const blob = new Blob(chunks, { type: 'audio/webm' });
-                    const formData = new FormData();
-                    formData.append('file', blob, 'dream.webm');
-
-                    const response = await fetch('/api/dream-process', { method: 'POST', body: formData });
-                    const result = await response.json();
-
-                    if (result.success) {
-                        statusDiv.innerText = "✅ 分析成功！";
-                        resultDiv.style.display = 'block';
-                        document.getElementById('rawText').innerText = result.rawTranscript;
-                        
-                        // 填入夢境種子
-                        const s = result.seeds;
-                        document.getElementById('seedList').innerHTML = `
-                            <li>• 場景：${s.scene}</li>
-                            <li>• 情緒：${s.mood}</li>
-                            <li>• 人物：${s.character}</li>
-                            <li>• 顏色：${s.color}</li>
-                            <li>• 感受：${s.feeling}</li>
-                            <li>• 重複元素：${s.elements}</li>
-                        `;
-
-                        document.getElementById('videoPrompt').innerText = result.videoPrompt;
-                        document.getElementById('tagContainer').innerHTML = result.tags.map(t => `<span class="tag">#${t}</span>`).join('');
-                    } else {
-                        statusDiv.innerText = "❌ 錯誤：" + result.error;
-                    }
-                };
-
-                mediaRecorder.start();
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'inline-block';
-                statusDiv.innerHTML = "🔴 <span style='color:#ff4757'>正在錄音中...</span>";
-                resultDiv.style.display = 'none';
-            } catch (err) {
-                statusDiv.innerHTML = "❌ 無法使用麥克風";
-            }
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            chunks = [];
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                statusDiv.innerText = "⌛ 解析中...";
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('file', blob, 'dream.webm');
+                const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    statusDiv.innerText = "✅ 完成";
+                    resultDiv.style.display = 'block';
+                    document.getElementById('rawText').innerText = data.rawTranscript;
+                    document.getElementById('s-scene').value = data.seeds.scene;
+                    document.getElementById('s-mood').value = data.seeds.mood;
+                    document.getElementById('s-character').value = data.seeds.character;
+                    document.getElementById('s-color').value = data.seeds.color;
+                    document.getElementById('s-feeling').value = data.seeds.feeling;
+                    document.getElementById('videoPrompt').innerText = data.videoPrompt;
+                    document.getElementById('tagContainer').innerHTML = data.tags.map(t => `<span class="tag">#${t}</span>`).join('');
+                }
+            };
+            mediaRecorder.start();
+            startBtn.style.display='none'; stopBtn.style.display='inline-block';
         };
-
-        stopBtn.onclick = () => {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                stopBtn.style.display = 'none';
-                startBtn.style.display = 'inline-block';
-                startBtn.innerText = "重新錄製夢境";
-            }
-        };
+        stopBtn.onclick = () => { mediaRecorder.stop(); startBtn.style.display='inline-block'; stopBtn.style.display='none'; };
     </script>
 </body>
 </html>
