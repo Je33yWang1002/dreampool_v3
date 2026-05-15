@@ -21,7 +21,7 @@ export default async function handler(req, res) {
       
       const fileStream = fs.createReadStream(audioFile.filepath);
 
-      // --- 1. OpenAI Whisper (語音轉文字) ---
+      // --- 1. OpenAI Whisper ---
       const whisperData = new FormData();
       whisperData.append('file', fileStream, { filename: 'dream.webm' });
       whisperData.append('model', 'whisper-1');
@@ -35,36 +35,41 @@ export default async function handler(req, res) {
         body: whisperData
       });
 
-      if (!whisperRes.ok) throw new Error("Whisper 語音辨識失敗");
       const whisperResult = await whisperRes.json();
-      const rawText = whisperResult.text || "（未辨識到語音）";
+      const rawText = whisperResult.text || "（未辨識到內容）";
 
-      // --- 2. Google Gemini (生成指令) ---
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      // --- 2. Google Gemini ---
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ 
-            parts: [{ text: `請根據這段夢境： 「${rawText}」，產出一個影片生成指令。
-            注意：直接給我文字即可，不要加任何標點符號、不要加 JSON 格式、不要加程式碼外框。` }] 
+            parts: [{ text: `你是一位影片導演。請針對夢境內容：「${rawText}」，寫一段 50 字內的英文影片描述指令 (Video Prompt)。直接輸出文字，不要任何格式。` }] 
           }]
         })
       });
 
-      const geminiResult = await geminiRes.json();
+      const geminiData = await geminiRes.json();
       
-      // 我們直接抓取 Gemini 吐出來的第一行純文字，不再強求 JSON 格式
+      // 超級保險抓取法：如果標準路徑沒資料，就顯示 API 回傳的原始訊息供偵錯
       let finalPrompt = "無法生成指令";
-      if (geminiResult.candidates && geminiResult.candidates[0].content.parts[0].text) {
-          finalPrompt = geminiResult.candidates[0].content.parts[0].text.trim();
+      
+      try {
+        if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
+          finalPrompt = geminiData.candidates[0].content.parts[0].text.trim();
+        } else if (geminiData.error) {
+          finalPrompt = "API 錯誤訊息: " + geminiData.error.message;
+        }
+      } catch (e) {
+        finalPrompt = "資料解析異常，請檢查 API Key 權限";
       }
 
-      // --- 3. 回傳結果 (手動組成前端要的格式) ---
+      // --- 3. 回傳結果 ---
       return res.status(200).json({
         success: true,
         rawTranscript: rawText,
         videoPrompt: finalPrompt,
-        tags: ["夢境分析", "自動生成"] // 暫時給固定標籤，確保畫面不報錯
+        tags: ["夢境分析", "自動生成"]
       });
 
     } catch (error) {
