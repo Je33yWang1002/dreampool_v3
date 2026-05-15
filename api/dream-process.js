@@ -6,67 +6,72 @@ export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: "Method not allowed" });
-  const form = new IncomingForm();
 
+  const form = new IncomingForm();
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "檔案解析失敗" });
+    if (err) return res.status(500).json({ error: "解析失敗" });
 
     try {
-      const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
-      const fileStream = fs.createReadStream(audioFile.filepath);
+      // 判斷目前是「語音分析」還是「夢境沖洗 (文字重新生成)」
+      const isDevelopMode = fields.mode === 'develop';
 
-      // --- 1. OpenAI Whisper ---
-      const FormDataNode = await import('form-data').then(m => m.default);
-      const fd = new FormDataNode();
-      fd.append('file', fileStream, { filename: 'dream.webm' });
-      fd.append('model', 'whisper-1');
+      if (!isDevelopMode) {
+        // --- 階段一：語音轉種子 ---
+        const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
+        const fileStream = fs.createReadStream(audioFile.filepath);
 
-      const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, ...fd.getHeaders() },
-        body: fd
-      });
-      const whisperResult = await whisperRes.json();
-      const rawText = whisperResult.text || "";
+        const FormDataNode = await import('form-data').then(m => m.default);
+        const fd = new FormDataNode();
+        fd.append('file', fileStream, { filename: 'dream.webm' });
+        fd.append('model', 'whisper-1');
 
-      // --- 2. OpenAI GPT-4o (嚴格提取邏輯) ---
-      const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [
-            { 
-              role: "system", 
-              content: `你是一位精準的夢境分析師。請僅根據「原始夢境」中提及的內容提取資訊。
-              - 語音是中文就用繁體中文，英文就用英文。
-              - tags 僅提取「情緒」相關詞彙，語言需與語音一致。
-              - 如果語音中完全沒提到某個種子類別（場景、情緒、人物、顏色、感受），該欄位請回傳空字串 ""。` 
-            },
-            { 
-              role: "user", 
-              content: `原始夢境：${rawText}。請回傳 JSON：
-              {
-                "seeds": { "scene": "", "mood": "", "character": "", "color": "", "feeling": "" },
-                "prompt": "高品質英文影片指令",
-                "tags": []
-              }` 
-            }
-          ],
-          response_format: { type: "json_object" }
-        })
-      });
+        const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, ...fd.getHeaders() },
+          body: fd
+        });
+        const whisperResult = await whisperRes.json();
+        const rawText = whisperResult.text || "";
 
-      const chatData = await chatRes.json();
-      const aiContent = JSON.parse(chatData.choices[0].message.content);
+        const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            messages: [
+              { role: "system", content: "你是一位精準的夢境分析師。請僅根據原始夢境中提及的內容提取資訊，未提到的欄位回傳空字串。" },
+              { role: "user", content: `原始夢境：${rawText}。請回傳 JSON：{"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` }
+            ],
+            response_format: { type: "json_object" }
+          })
+        });
+        const chatData = await chatRes.json();
+        const aiContent = JSON.parse(chatData.choices[0].message.content);
 
-      return res.status(200).json({
-        success: true,
-        rawTranscript: rawText,
-        seeds: aiContent.seeds,
-        videoPrompt: aiContent.prompt,
-        tags: aiContent.tags
-      });
+        return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
+
+      } else {
+        // --- 階段二：夢境沖洗 (根據種子生成 Prompt) ---
+        const seeds = JSON.parse(fields.seeds);
+        const lang = fields.lang || "zh-TW";
+
+        const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            messages: [
+              { role: "system", content: "你是一位視覺編導。請根據提供的夢境種子，編寫一段高品質的英文影片指令 (Video Prompt)，並提取 3 個符合原語言的情緒標籤。" },
+              { role: "user", content: `種子內容：${JSON.stringify(seeds)}。請回傳 JSON：{"prompt": "...", "tags": ["", "", ""]}` }
+            ],
+            response_format: { type: "json_object" }
+          })
+        });
+        const chatData = await chatRes.json();
+        const aiContent = JSON.parse(chatData.choices[0].message.content);
+
+        return res.status(200).json({ success: true, videoPrompt: aiContent.prompt, tags: aiContent.tags });
+      }
     } catch (error) {
       return res.status(500).json({ success: false, error: error.message });
     }
