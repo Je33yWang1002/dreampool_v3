@@ -10,12 +10,12 @@
         .seed-row { display: flex; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 8px; }
         .seed-label { width: 85px; color: #ff4757; font-weight: bold; font-size: 14px; }
         .seed-input { background: transparent; border: none; color: #fff; width: 100%; font-size: 16px; outline: none; }
-        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; }
+        .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; white-space: pre-wrap; word-break: break-all; }
         .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
         button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; }
         #start { background: #ff4757; color: white; }
         #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
-        video { width: 100%; border-radius: 10px; margin-top: 20px; border: 2px solid #ffd32a; }
+        video { width: 100%; border-radius: 10px; margin-top: 20px; border: 2px solid #ffd32a; display: block; }
     </style>
 </head>
 <body>
@@ -29,11 +29,11 @@
         <div id="rawText" style="color:#aaa; margin-bottom:20px; font-style: italic;"></div>
 
         <p><strong>【夢境種子】(可手動補強)</strong></p>
-        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input"></div>
-        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input"></div>
-        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input"></div>
-        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input"></div>
-        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input"></div>
+        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="等待分析..."></div>
+        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="等待分析..."></div>
+        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="等待分析..."></div>
+        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="等待分析..."></div>
+        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="等待分析..."></div>
         
         <button id="developBtn">🎞️ 夢境沖洗 (等待約 2 分鐘)</button>
 
@@ -64,17 +64,24 @@
                 const blob = new Blob(chunks, { type: 'audio/webm' });
                 const formData = new FormData();
                 formData.append('file', blob, 'dream.webm');
-                const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
-                const data = await res.json();
-                if (data.success) {
-                    statusDiv.innerText = "✅ 已提取種子，點擊「夢境沖洗」開始生成";
-                    resultDiv.style.display = 'block';
-                    document.getElementById('rawText').innerText = data.rawTranscript;
-                    document.getElementById('s-scene').value = data.seeds.scene;
-                    document.getElementById('s-mood').value = data.seeds.mood;
-                    document.getElementById('s-character').value = data.seeds.character;
-                    document.getElementById('s-color').value = data.seeds.color;
-                    document.getElementById('s-feeling').value = data.seeds.feeling;
+
+                try {
+                    const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (data.success) {
+                        statusDiv.innerText = "✅ 已提取種子，請修正後點擊「夢境沖洗」";
+                        resultDiv.style.display = 'block';
+                        document.getElementById('rawText').innerText = data.rawTranscript;
+                        
+                        // 修復：將 AI 回傳的英文 key 對應到前端輸入框
+                        document.getElementById('s-scene').value = data.seeds.scene || "";
+                        document.getElementById('s-mood').value = data.seeds.mood || "";
+                        document.getElementById('s-character').value = data.seeds.character || "";
+                        document.getElementById('s-color').value = data.seeds.color || "";
+                        document.getElementById('s-feeling').value = data.seeds.feeling || "";
+                    }
+                } catch (e) {
+                    statusDiv.innerText = "❌ 解析失敗";
                 }
             };
             mediaRecorder.start();
@@ -82,33 +89,3 @@
         };
 
         stopBtn.onclick = () => { mediaRecorder.stop(); startBtn.style.display='inline-block'; stopBtn.style.display='none'; };
-
-        developBtn.onclick = async () => {
-            statusDiv.innerText = "🎬 正在生成影片...這需要 1-2 分鐘，請勿關閉網頁";
-            const seeds = {
-                scene: document.getElementById('s-scene').value,
-                mood: document.getElementById('s-mood').value,
-                character: document.getElementById('s-character').value,
-                color: document.getElementById('s-color').value,
-                feeling: document.getElementById('s-feeling').value
-            };
-            const formData = new FormData();
-            formData.append('mode', 'develop');
-            formData.append('seeds', JSON.stringify(seeds));
-
-            const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
-            const data = await res.json();
-
-            if (data.success && data.videoUrl) {
-                statusDiv.innerText = "✨ 夢境沖洗完成！";
-                document.getElementById('finalOutput').style.display = 'block';
-                document.getElementById('dreamVideo').src = data.videoUrl;
-                document.getElementById('videoPrompt').innerText = data.videoPrompt;
-                document.getElementById('tagContainer').innerHTML = data.tags.map(t => `<span class="tag">#${t}</span>`).join('');
-            } else {
-                statusDiv.innerText = "❌ 失敗：" + (data.error || "影片超時未生成，請重試");
-            }
-        };
-    </script>
-</body>
-</html>
