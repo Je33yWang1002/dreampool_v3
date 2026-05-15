@@ -26,6 +26,7 @@ export default async function handler(req, res) {
         fd.append('file', fileStream, { filename: 'dream.webm' });
         fd.append('model', 'whisper-1');
 
+        // 1. 語音轉文字
         const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, ...fd.getHeaders() },
@@ -34,35 +35,43 @@ export default async function handler(req, res) {
         const whisperResult = await whisperRes.json();
         const rawText = whisperResult.text || "";
 
+        // 2. 文本分析 (嚴格指定 JSON 格式)
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "你是一位精準的夢境分析師。提取場景、情緒、人物、顏色、感受。JSON格式。" },
-              { role: "user", content: `原始夢境：${rawText}` }
+              { 
+                role: "system", 
+                content: "你是一位夢境分析師。請提取：場景(scene)、情緒(mood)、人物(character)、顏色(color)、感受(feeling)。請用繁體中文回答，並嚴格遵守 JSON 結構。" 
+              },
+              { 
+                role: "user", 
+                content: `內容：${rawText}。回傳格式：{"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` 
+              }
             ],
             response_format: { type: "json_object" }
           })
         });
         const chatData = await chatRes.json();
         const aiContent = JSON.parse(chatData.choices[0].message.content);
+        
         return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
 
       } else {
-        // --- 階段二：Kling AI 生成影片 ---
+        // --- 階段二：Kling AI 生成 ---
         const seeds = typeof fields.seeds === 'string' ? JSON.parse(fields.seeds) : JSON.parse(fields.seeds[0]);
         
-        // 1. 生成 Prompt
+        // 1. 生成 Video Prompt
         const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "你是一位電影編導。寫一段英文影片指令，風格超現實，並生成三個標籤。" },
-              { role: "user", content: `種子：${JSON.stringify(seeds)}` }
+              { role: "system", content: "你是一位電影編導。根據種子寫出一段高品質英文 Video Prompt，要超現實，並回傳三個標籤。" },
+              { role: "user", content: `種子：${JSON.stringify(seeds)}。格式：{"prompt": "", "tags": ["", "", ""]}` }
             ],
             response_format: { type: "json_object" }
           })
@@ -81,10 +90,10 @@ export default async function handler(req, res) {
 
         if (!taskId) throw new Error("Kling 任務提交失敗");
 
-        // 3. 輪詢檢查影片是否做好了 (Polling)
+        // 3. 輪詢領取影片 (Polling)
         let videoUrl = "";
-        for (let i = 0; i < 30; i++) { // 最多等 150 秒
-          await new Promise(resolve => setTimeout(resolve, 5000)); // 每 5 秒檢查一次
+        for (let i = 0; i < 24; i++) { // 每 5 秒檢查一次，最多等 2 分鐘
+          await new Promise(r => setTimeout(r, 5000));
           const checkRes = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
             headers: { 'Authorization': `Bearer ${KLING_KEY}` }
           });
@@ -100,8 +109,7 @@ export default async function handler(req, res) {
           success: true, 
           videoPrompt: prompt, 
           tags: tags,
-          videoUrl: videoUrl,
-          message: "影片洗出來了！"
+          videoUrl: videoUrl
         });
       }
     } catch (error) {
