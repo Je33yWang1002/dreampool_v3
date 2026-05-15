@@ -12,15 +12,15 @@
         .seed-input { background: transparent; border: none; color: #fff; width: 100%; font-size: 16px; outline: none; }
         .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; }
         .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
-        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; font-size: 16px; }
+        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; font-size: 16px; transition: all 0.3s; }
         #start { background: #ff4757; color: white; }
         #stop { background: #57606f; color: white; }
         #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
         
-        /* 影片播放器樣式：符合手機 9:16 直式規格 */
-        .video-container { margin-top: 25px; text-align: center; display: none; }
-        video { width: 100%; max-width: 360px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #ff4757; }
-        .loading-movie { color: #ffd32a; font-style: italic; margin-top: 15px; text-align: center; display: none; }
+        /* 影片播放器樣式：精準 9:16 直式規格 */
+        .video-container { margin-top: 25px; text-align: center; display: none; background: #1e272e; padding: 20px; border-radius: 12px; border: 1px solid #444; }
+        video { width: 100%; max-width: 320px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); border: 2px solid #ffd32a; }
+        .loading-movie { color: #ffd32a; font-style: italic; margin-top: 15px; text-align: center; display: none; padding: 10px; background: rgba(255,211,42,0.1); border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -42,10 +42,10 @@
         
         <button id="developBtn">🎞️ 夢境沖洗 (Kling AI 生成影片)</button>
 
-        <div id="movieLoadingStatus" class="loading-movie">⌛ 正在膠捲顯影中，Kling AI 正在生成超現實夢境... (每 8 秒自動刷新)</div>
+        <div id="movieLoadingStatus" class="loading-movie">⌛ 正在膠捲顯影中，Kling AI 正在生成超現實夢境... (每 8 秒自動刷新進度)</div>
 
         <div id="videoDisplaySection" class="video-container">
-            <p style="text-align:left; color:#ffd32a;"><strong>🔮 您的潛意識電影上映了：</strong></p>
+            <p style="text-align:left; color:#ffd32a; margin-top:0;"><strong>🔮 您的潛意識電影上映了：</strong></p>
             <video id="dreamVideoPlayer" controls autoplay loop playsinline></video>
         </div>
 
@@ -90,7 +90,6 @@
                         document.getElementById('s-color').value = data.seeds.color || "";
                         document.getElementById('s-feeling').value = data.seeds.feeling || "";
                         
-                        // 初始化乾淨的畫面
                         document.getElementById('videoDisplaySection').style.display = 'none';
                         document.getElementById('movieLoadingStatus').style.display = 'none';
                     } else {
@@ -134,10 +133,9 @@
                     document.getElementById('videoPrompt').innerText = data.videoPrompt;
                     document.getElementById('tagContainer').innerHTML = data.tags.map(t => `<span class="tag">#${t}</span>`).join('');
                     
-                    // 顯示等待狀態
                     document.getElementById('movieLoadingStatus').style.display = 'block';
                     
-                    // 啟動定時檢查機關：拿著 taskId 每 8 秒去後端問一次好了沒
+                    // 進入催單輪詢
                     pollVideoStatus(data.taskId);
                 } else {
                     statusDiv.innerText = "❌ 失敗：" + data.error;
@@ -151,7 +149,6 @@
             }
         };
 
-        // 自動向後端催單的「計時器功能」
         function pollVideoStatus(taskId) {
             const interval = setInterval(async () => {
                 const checkData = new FormData();
@@ -166,18 +163,14 @@
                         const currentStatus = statusResult.status;
                         
                         if (currentStatus === 'SUCCESS' && statusResult.videoUrl) {
-                            // 1. 停止計時器
                             clearInterval(interval);
-                            // 2. 隱藏等待提示
                             document.getElementById('movieLoadingStatus').style.display = 'none';
                             statusDiv.innerText = "🎉 夢境影片沖洗成功！";
                             
-                            // 3. 塞入影片網址並展示播放器
                             const player = document.getElementById('dreamVideoPlayer');
                             player.src = statusResult.videoUrl;
                             document.getElementById('videoDisplaySection').style.display = 'block';
                             
-                            // 按鈕復原
                             developBtn.disabled = false;
                             developBtn.style.opacity = "1";
                         } else if (currentStatus === 'FAILED') {
@@ -187,14 +180,13 @@
                             developBtn.disabled = false;
                             developBtn.style.opacity = "1";
                         } else {
-                            // 還在 PROCESSING 或 SUBMITTED，繼續等下一輪
                             statusDiv.innerText = "⏳ 影片製作中... 目前狀態：" + (currentStatus === 'PROCESSING' ? "正在渲染" : "排隊中");
                         }
                     }
                 } catch (e) {
-                    console.log("檢查進度時發生小錯誤，下一輪會再試：", e);
+                    console.log("檢查進度中：", e);
                 }
-            }, 8000); // 8000 毫秒 = 每 8 秒查一次
+            }, 8000);
         }
     </script>
 </body>
