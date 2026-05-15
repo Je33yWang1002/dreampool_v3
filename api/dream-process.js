@@ -12,7 +12,6 @@ export default async function handler(req, res) {
     if (err) return res.status(500).json({ error: "解析失敗" });
 
     try {
-      // 判斷目前是「語音分析」還是「夢境沖洗 (文字重新生成)」
       const isDevelopMode = fields.mode === 'develop';
 
       if (!isDevelopMode) {
@@ -39,7 +38,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "你是一位精準的夢境分析師。請僅根據原始夢境中提及的內容提取資訊，未提到的欄位回傳空字串。" },
+              { role: "system", content: "你是一位精準的夢境分析師。請僅根據原始夢境中提及的內容提取資訊，未提到的欄位回傳空字串。語言需與輸入一致。" },
               { role: "user", content: `原始夢境：${rawText}。請回傳 JSON：{"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` }
             ],
             response_format: { type: "json_object" }
@@ -53,16 +52,14 @@ export default async function handler(req, res) {
       } else {
         // --- 階段二：夢境沖洗 (根據種子生成 Prompt) ---
         const seeds = JSON.parse(fields.seeds);
-        const lang = fields.lang || "zh-TW";
-
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "你是一位視覺編導。請根據提供的夢境種子，編寫一段高品質的英文影片指令 (Video Prompt)，並提取 3 個符合原語言的情緒標籤。" },
-              { role: "user", content: `種子內容：${JSON.stringify(seeds)}。請回傳 JSON：{"prompt": "...", "tags": ["", "", ""]}` }
+              { role: "system", content: "你是一位電影編導。根據提供的種子（場景、情緒、人物、顏色、感受），編寫一段高品質英文影片指令 (Video Prompt)，並生成三個情緒標籤（語言與種子一致）。" },
+              { role: "user", content: `種子：${JSON.stringify(seeds)}。請回傳 JSON：{"prompt": "...", "tags": ["", "", ""]}` }
             ],
             response_format: { type: "json_object" }
           })
