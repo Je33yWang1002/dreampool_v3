@@ -1,25 +1,19 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
+import FormData from 'form-data';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 簡化版的 Kling 驗證：直接支援新版 sk- 開頭的金鑰
-function getKlingAuthHeader(apiKey) {
-  if (!apiKey) return '';
-  // 如果已經是 Bearer 開頭就直接回傳，否則自動加上 Bearer
-  return apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: "Method not allowed" });
 
   const form = new IncomingForm();
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "解析失敗" });
+    if (err) return res.status(500).json({ success: false, error: "解析表單失敗" });
 
     try {
       const modeField = fields.mode;
@@ -33,24 +27,35 @@ export default async function handler(req, res) {
         const filePath = audioFile.filepath || audioFile.path;
         const fileStream = fs.createReadStream(filePath);
         
-        const FormDataNode = await import('form-data').then(m => m.default);
-        const fd = new FormDataNode();
-        fd.append('file', fileStream, { filename: 'dream.webm' });
+        const fd = new FormData();
+        fd.append('file', fileStream, { filename: 'dream.webm', contentType: 'audio/webm' });
         fd.append('model', 'whisper-1');
 
         const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, ...fd.getHeaders() },
+          headers: { 
+            'Authorization': `Bearer ${OPENAI_API_KEY}`, 
+            ...fd.getHeaders() 
+          },
           body: fd
         });
+        
+        if (!whisperRes.ok) {
+          const errText = await whisperRes.text();
+          throw new Error(`Whisper 語音辨識失敗: ${errText}`);
+        }
+        
         const whisperResult = await whisperRes.json();
         const rawText = whisperResult.text || "";
 
-        if (!rawText) throw new Error("語音識別失敗，請再說大聲一點");
+        if (!rawText) throw new Error("夢境聲音太小，請再說清楚一點點");
 
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 
+            'Authorization': `Bearer ${OPENAI_API_KEY}`, 
+            'Content-Type': 'application/json' 
+          },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
@@ -60,6 +65,7 @@ export default async function handler(req, res) {
             response_format: { type: "json_object" }
           })
         });
+        
         const chatData = await chatRes.json();
         const aiContent = JSON.parse(chatData.choices[0].message.content);
         return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
@@ -85,8 +91,8 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 使用新版 Kling 直連認證機制
-        const klingAuth = getKlingAuthHeader(KLING_API_KEY);
+        // 新版直連驗證：直接把密碼塞進去，不進行任何點號拆解
+        const klingAuth = KLING_API_KEY.startsWith('Bearer ') ? KLING_API_KEY : `Bearer ${KLING_API_KEY}`;
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
           method: 'POST',
@@ -109,7 +115,7 @@ export default async function handler(req, res) {
 
         const taskId = klingData.data?.task_id;
         if (!taskId) {
-          throw new Error(klingData.message || "Kling AI 連線異常，未取得任務 ID");
+          throw new Error(klingData.message || "Kling 未取得任務 ID");
         }
 
         return res.status(200).json({ 
@@ -123,14 +129,13 @@ export default async function handler(req, res) {
       // --- 階段三：查詢進度 ---
       else if (mode === 'check_status') {
         const taskId = Array.isArray(fields.taskId) ? fields.taskId[0] : fields.taskId;
-        const klingAuth = getKlingAuthHeader(KLING_API_KEY);
+        const klingAuth = KLING_API_KEY.startsWith('Bearer ') ? KLING_API_KEY : `Bearer ${KLING_API_KEY}`;
         
         const checkRes = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
           method: 'GET',
           headers: { 'Authorization': klingAuth }
         });
         const checkData = await checkRes.json();
-        
         const status = checkData.data?.task_status;
         
         let videoUrl = "";
