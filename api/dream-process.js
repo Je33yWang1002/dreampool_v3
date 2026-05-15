@@ -3,39 +3,39 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 
-// 安全地從 Vercel 後台讀取環境變數
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 計算 Kling 官方高級簽章並自動加上 Bearer 的功能
+// 修正後的 Kling 計算函式：完美支援 AccessKey.SecretKey 拼接格式
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
-    // 清洗字串：移除前後空白與換行
-    const cleanKey = apiKey.trim().replace(/[\r\n]/g, '');
+    let cleanKey = apiKey.trim().replace(/[\r\n]/g, '');
+    
+    // 如果使用者在 Vercel 後台直接填了 "AccessKey: XXX \n SecretKey: YYY" 的格式，進行相容清洗
+    if (cleanKey.includes('Access Key:') || cleanKey.includes('Secret Key:')) {
+      const accessMatch = cleanKey.match(/Access\s*Key:\s*([^\s]+)/i);
+      const secretMatch = cleanKey.match(/Secret\s*Key:\s*([^\s]+)/i);
+      if (accessMatch && secretMatch) {
+        cleanKey = `${accessMatch[1].trim()}.${secretMatch[1].trim()}`;
+      }
+    }
 
-    // 如果後台填寫的格式不是 "AccessKey.SecretKey"，就當作一般 Token 處理
     if (!cleanKey.includes('.')) {
       return cleanKey.startsWith('Bearer ') ? cleanKey : `Bearer ${cleanKey}`;
     }
 
-    // 切開 Access Key 與 Secret Key
     const parts = cleanKey.split('.');
     const accessKeyId = parts[0].trim();
     const secretAccessKey = parts[1].trim();
 
-    if (!accessKeyId || !secretAccessKey) {
-      return cleanKey.startsWith('Bearer ') ? cleanKey : `Bearer ${cleanKey}`;
-    }
-
-    // 開始進行 Kling 官方標準的 JWT 加密計算
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
       iss: accessKeyId,
-      exp: now + 1800, // 30 分鐘有效時間
+      exp: now + 1800, 
       nbf: now - 5
     };
 
@@ -59,7 +59,6 @@ function getKlingAuthHeader(apiKey) {
       .replace(/\+/g, '-')
       .replace(/\//g, '_');
 
-    // 【核心修正】：Kling 規定生成的 Token 前面一定要強制補上 Bearer 字樣！
     return `Bearer ${tokenData}.${signature}`;
   } catch (e) {
     console.error("Kling 驗證計算失敗：", e);
@@ -78,7 +77,7 @@ export default async function handler(req, res) {
       const modeField = fields.mode;
       const mode = Array.isArray(modeField) ? modeField[0] : modeField || 'transcribe';
 
-      // --- 階段一：語音轉文字 (Whisper) ---
+      // --- 階段一：語音轉文字 ---
       if (mode === 'transcribe') {
         const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
         if (!audioFile) throw new Error("找不到錄音檔案");
@@ -138,7 +137,6 @@ export default async function handler(req, res) {
         const gptData = await gptRes.json();
         const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
 
-        // 呼叫清洗與加密函式（現在會正確帶有 Bearer）
         const klingAuth = getKlingAuthHeader(KLING_API_KEY);
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
@@ -159,7 +157,12 @@ export default async function handler(req, res) {
         const klingData = await klingRes.json();
         
         if (klingData.code && klingData.code !== 0) {
-          throw new Error(`Kling 錯誤 [${klingData.code}]: ${klingData.message}`);
+          // 優化錯誤提示，讓前端能直接看懂點數不足的問題
+          let errorMsg = klingData.message;
+          if (klingData.code === 1102) {
+            errorMsg = "Kling 帳戶餘額不足(1102)，請至 Kling 官網儲值點數！";
+          }
+          throw new Error(`Kling 錯誤 [${klingData.code}]: ${errorMsg}`);
         }
 
         const taskId = klingData.data?.task_id;
