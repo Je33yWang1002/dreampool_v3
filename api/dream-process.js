@@ -21,8 +21,6 @@ export default async function handler(req, res) {
       const fileStream = fs.createReadStream(audioFile.filepath);
 
       // --- 1. OpenAI Whisper (語音轉文字) ---
-      const whisperData = new FormData();
-      // 這裡需要手動引入或是確保環境支援，因為原本是用外部套件，保持邏輯一致
       const FormDataNode = await import('form-data').then(m => m.default);
       const fd = new FormDataNode();
       fd.append('file', fileStream, { filename: 'dream.webm' });
@@ -40,7 +38,7 @@ export default async function handler(req, res) {
       const whisperResult = await whisperRes.json();
       const rawText = whisperResult.text || "（未辨識到內容）";
 
-      // --- 2. OpenAI GPT-4o (生成影片指令與標籤) ---
+      // --- 2. OpenAI GPT-4o (結構化夢境分析) ---
       const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -52,11 +50,23 @@ export default async function handler(req, res) {
           messages: [
             { 
               role: "system", 
-              content: "你是一位夢境分析師與影片導演。請將夢境描述轉化為一段英文影片指令 (Video Prompt)，並提取3個情緒標籤。" 
+              content: "你是一位夢境分析師與影片導演。請將夢境描述轉化為結構化資料。seeds 內容請用繁體中文，prompt 使用英文。" 
             },
             { 
               role: "user", 
-              content: `夢境內容：${rawText}。請回傳 JSON 格式：{"prompt": "英文描述", "tags": ["標籤1", "標籤2", "標籤3"]}` 
+              content: `夢境內容：${rawText}。請回傳 JSON 格式：
+              {
+                "seeds": {
+                  "scene": "場景描述",
+                  "mood": "情緒描述",
+                  "character": "人物描述",
+                  "color": "顏色色調",
+                  "feeling": "內心感受",
+                  "elements": "重複出現的元素"
+                },
+                "prompt": "一段高品質英文影片指令",
+                "tags": ["標籤1", "標籤2", "標籤3"]
+              }` 
             }
           ],
           response_format: { type: "json_object" }
@@ -70,6 +80,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         rawTranscript: rawText,
+        seeds: aiContent.seeds,
         videoPrompt: aiContent.prompt,
         tags: aiContent.tags
       });
