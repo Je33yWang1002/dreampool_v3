@@ -1,60 +1,46 @@
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import fetch from 'node-fetch';
-import crypto from 'crypto'; // 引入 Node.js 內建的加密模組
+import crypto from 'crypto';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// Kling 官方規定必須使用的 JWT / 簽章生成函式
-function getKlingAuthHeader(apiKey) {
-  if (!apiKey) return '';
-  try {
-    // 1. 將 Kling 的金鑰拆解成 accessKeyId 與 secretAccessKey
-    const [accessKeyId, secretAccessKey] = apiKey.split('.');
-    if (!accessKeyId || !secretAccessKey) return `Bearer ${apiKey}`;
-
-    // 2. 準備官方規定的標準 Header 內容
-    const header = { alg: 'HS256', typ: 'JWT' };
-    
-    // 3. 準備 Payload（設定 5 分鐘後過期）
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-      iss: accessKeyId,
-      exp: now + 300,
-      nbf: now - 5
-    };
-
-    // 4. 將 Header 與 Payload 轉為 Base64Url 編碼
-    const base64UrlEncode = (obj) => {
-      return Buffer.from(JSON.stringify(obj))
-        .toString('base64')
-        .replace(/=/g, '')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_');
-    };
-
-    const encodedHeader = base64UrlEncode(header);
-    const encodedPayload = base64UrlEncode(payload);
-    const tokenData = `${encodedHeader}.${encodedPayload}`;
-
-    // 5. 使用 secretAccessKey 進行 HMAC-SHA256 加密簽名
-    const signature = crypto
-      .createHmac('sha256', secretAccessKey)
-      .update(tokenData)
-      .digest('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-
-    // 6. 組合出最終符合 Kling 規格的 Token
-    return `${tokenData}.${signature}`;
-  } catch (e) {
-    console.error("生成 Kling 驗證失敗，降級回傳統 Bearer:", e);
-    return `Bearer ${apiKey}`;
+// 核心修正：Kling 專用的 JWT 生成邏輯
+function generateKlingToken(apiKey) {
+  if (!apiKey || !apiKey.includes('.')) {
+    console.error("API Key 格式不正確，應為 AccessKey.SecretKey");
+    return null;
   }
+
+  const [accessKey, secretKey] = apiKey.split('.');
+  const header = { alg: 'HS256', typ: 'JWT' };
+  
+  // 設定時間戳：當前時間與 30 分鐘後過期
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: accessKey,
+    exp: now + 1800, // 30 minutes
+    nbf: now - 60    // 提前 1 分鐘避免伺服器時間誤差
+  };
+
+  const base64Url = (str) => Buffer.from(str).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  
+  const encodedHeader = base64Url(JSON.stringify(header));
+  const encodedPayload = base64Url(JSON.stringify(payload));
+  const signatureInput = `${encodedHeader}.${encodedPayload}`;
+  
+  const signature = crypto
+    .createHmac('sha256', secretKey)
+    .update(signatureInput)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+
+  return `${signatureInput}.${signature}`;
 }
 
 export default async function handler(req, res) {
@@ -65,17 +51,12 @@ export default async function handler(req, res) {
     if (err) return res.status(500).json({ error: "解析失敗" });
 
     try {
-      const modeField = fields.mode;
-      const mode = Array.isArray(modeField) ? modeField[0] : modeField || 'transcribe';
+      const mode = Array.isArray(fields.mode) ? fields.mode[0] : fields.mode || 'transcribe';
 
-      // --- 階段一：語音轉文字 (Whisper) ---
+      // --- 語音轉文字 ---
       if (mode === 'transcribe') {
         const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
-        if (!audioFile) throw new Error("找不到錄音檔案");
-        
-        const filePath = audioFile.filepath || audioFile.path;
-        const fileStream = fs.createReadStream(filePath);
-        
+        const fileStream = fs.createReadStream(audioFile.filepath);
         const FormDataNode = await import('form-data').then(m => m.default);
         const fd = new FormDataNode();
         fd.append('file', fileStream, { filename: 'dream.webm' });
@@ -89,8 +70,6 @@ export default async function handler(req, res) {
         const whisperResult = await whisperRes.json();
         const rawText = whisperResult.text || "";
 
-        if (!rawText) throw new Error("語音識別失敗，請再說大聲一點");
-
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -98,100 +77,71 @@ export default async function handler(req, res) {
             model: "gpt-4o",
             messages: [
               { role: "system", content: "你是一位精準的夢境分析師。請提取場景、情緒、人物、顏色、感受。回傳 JSON。" },
-              { role: "user", content: `原始夢境：${rawText}。請回傳 JSON：{"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` }
+              { role: "user", content: `原始夢境：${rawText}` }
             ],
             response_format: { type: "json_object" }
           })
         });
         const chatData = await chatRes.json();
-        const aiContent = JSON.parse(chatData.choices[0].message.content);
-        return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
+        return res.status(200).json({ success: true, rawTranscript: rawText, seeds: JSON.parse(chatData.choices[0].message.content).seeds });
       } 
       
-      // --- 階段二：Kling AI 影片下單 ---
+      // --- Kling 影片下單 ---
       else if (mode === 'develop') {
-        const seedsRaw = Array.isArray(fields.seeds) ? fields.seeds[0] : fields.seeds;
-        const seeds = typeof seedsRaw === 'string' ? JSON.parse(seedsRaw) : seedsRaw;
+        const seeds = JSON.parse(Array.isArray(fields.seeds) ? fields.seeds[0] : fields.seeds);
         
         const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
-            messages: [
-              { role: "system", content: "你是一位電影編導。根據種子編寫一段高品質英文影片指令 (Video Prompt)，風格要超現實、夢幻、有藝術感。請盡量具體描述畫面和光影。" },
-              { role: "user", content: `種子：${JSON.stringify(seeds)}。請回傳 JSON：{"prompt": "...", "tags": ["", "", ""]}` }
-            ],
+            messages: [{ role: "system", content: "編寫一段高品質英文影片指令 (Video Prompt)，超現實夢幻風格。" }, { role: "user", content: JSON.stringify(seeds) }],
             response_format: { type: "json_object" }
           })
         });
-        const gptData = await gptRes.json();
-        const { prompt, tags } = JSON.parse(gptData.choices[0].message.content);
+        const { prompt, tags } = JSON.parse((await gptRes.json()).choices[0].message.content);
 
-        // 使用全新的 Kling 加密認證機制
-        const klingAuth = getKlingAuthHeader(KLING_API_KEY);
+        // 生成最新的 Token
+        const token = generateKlingToken(KLING_API_KEY);
+        if (!token) throw new Error("Kling Token 生成失敗，請檢查環境變數 KLING_API_KEY");
 
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
           method: 'POST',
           headers: {
-            'Authorization': klingAuth,
+            'Authorization': `Bearer ${token}`, // 注意：這裡必須保留 Bearer 字樣
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             model: "kling-v1",
             prompt: prompt,
-            aspect_ratio: "9:16",
-            duration: "5"
+            aspect_ratio: "9:16"
           })
         });
         const klingData = await klingRes.json();
-        
-        // 增加一個除錯機制，如果 Kling 回傳錯誤，直接顯示在網頁上
-        if (klingData.code && klingData.code !== 0) {
-          throw new Error(`Kling 錯誤 [${klingData.code}]: ${klingData.message}`);
+
+        if (klingData.code !== 0) {
+          throw new Error(`Kling API 回傳錯誤: ${klingData.message} (代碼:${klingData.code})`);
         }
 
-        const taskId = klingData.data?.task_id;
-        if (!taskId) {
-          throw new Error(klingData.message || "Kling AI 連線異常，未取得任務 ID");
-        }
-
-        return res.status(200).json({ 
-          success: true, 
-          videoPrompt: prompt, 
-          tags: tags,
-          taskId: taskId
-        });
+        return res.status(200).json({ success: true, videoPrompt: prompt, tags, taskId: klingData.data.task_id });
       }
 
-      // --- 階段三：查詢進度 ---
+      // --- 查詢進度 ---
       else if (mode === 'check_status') {
         const taskId = Array.isArray(fields.taskId) ? fields.taskId[0] : fields.taskId;
-        const klingAuth = getKlingAuthHeader(KLING_API_KEY);
+        const token = generateKlingToken(KLING_API_KEY);
         
         const checkRes = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
           method: 'GET',
-          headers: { 'Authorization': klingAuth }
+          headers: { 'Authorization': `Bearer ${token}` }
         });
         const checkData = await checkRes.json();
-        
-        const status = checkData.data?.task_status;
-        
-        // 抓取 Kling 吐出來的最終網址
-        let videoUrl = "";
-        if (checkData.data?.task_result?.videos && checkData.data.task_result.videos.length > 0) {
-          videoUrl = checkData.data.task_result.videos[0].url || "";
-        }
+        const videoUrl = checkData.data?.task_result?.videos?.[0]?.url || "";
 
-        return res.status(200).json({
-          success: true,
-          status: status, 
-          videoUrl: videoUrl
-        });
+        return res.status(200).json({ success: true, status: checkData.data?.task_status, videoUrl });
       }
 
     } catch (error) {
-      console.error(error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
