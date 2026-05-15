@@ -38,8 +38,8 @@ export default async function handler(req, res) {
       const whisperResult = await whisperRes.json();
       const rawText = whisperResult.text || "（未辨識到內容）";
 
-      // --- 2. Google Gemini ---
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      // --- 2. Google Gemini (改回穩定版 pro 並使用 v1 網址) ---
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,17 +51,12 @@ export default async function handler(req, res) {
 
       const geminiData = await geminiRes.json();
       
-      // 超級保險抓取法：如果標準路徑沒資料，就顯示 API 回傳的原始訊息供偵錯
       let finalPrompt = "無法生成指令";
       
-      try {
-        if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
+      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
           finalPrompt = geminiData.candidates[0].content.parts[0].text.trim();
-        } else if (geminiData.error) {
-          finalPrompt = "API 錯誤訊息: " + geminiData.error.message;
-        }
-      } catch (e) {
-        finalPrompt = "資料解析異常，請檢查 API Key 權限";
+      } else if (geminiData.error) {
+          finalPrompt = "API 錯誤: " + geminiData.error.message;
       }
 
       // --- 3. 回傳結果 ---
