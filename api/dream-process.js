@@ -8,23 +8,28 @@ const KLING_API_KEY = process.env.KLING_API_KEY;
 
 export const config = { api: { bodyParser: false } };
 
-// 改進版：Kling 官方標準 JWT / 簽章生成函式
+// 官方標準 JWT / 簽章生成函式（修正相容性）
 function getKlingAuthHeader(apiKey) {
   if (!apiKey) return '';
   try {
-    // 如果金鑰不包含點，代表可能是傳統的 Bearer 格式，直接降級回傳
-    if (!apiKey.includes('.')) {
-      return `Bearer ${apiKey}`;
+    let accessKeyId = '';
+    let secretAccessKey = '';
+
+    // 自動判斷並切分金鑰
+    if (apiKey.includes('.')) {
+      [accessKeyId, secretAccessKey] = apiKey.split('.');
+    } else {
+      // 預防萬一：如果使用者在環境變數誤帶了引號或空格，進行基本清洗
+      return `Bearer ${apiKey.trim()}`;
     }
 
-    const [accessKeyId, secretAccessKey] = apiKey.split('.');
     if (!accessKeyId || !secretAccessKey) return `Bearer ${apiKey}`;
 
     const header = { alg: 'HS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
     const payload = {
-      iss: accessKeyId,
-      exp: now + 1800, // 延長至 30 分鐘有效時間，避免排隊逾期
+      iss: accessKeyId.trim(),
+      exp: now + 1800, 
       nbf: now - 5
     };
 
@@ -41,7 +46,7 @@ function getKlingAuthHeader(apiKey) {
     const tokenData = `${encodedHeader}.${encodedPayload}`;
 
     const signature = crypto
-      .createHmac('sha256', secretAccessKey)
+      .createHmac('sha256', secretAccessKey.trim())
       .update(tokenData)
       .digest('base64')
       .replace(/=/g, '')
@@ -50,7 +55,7 @@ function getKlingAuthHeader(apiKey) {
 
     return `${tokenData}.${signature}`;
   } catch (e) {
-    console.error("生成 Kling 驗證失敗，降級回傳統 Bearer:", e);
+    console.error("生成 Kling 驗證失敗：", e);
     return `Bearer ${apiKey}`;
   }
 }
@@ -128,7 +133,6 @@ export default async function handler(req, res) {
 
         const klingAuth = getKlingAuthHeader(KLING_API_KEY);
 
-        // 升級至 Kling 官方標準規格端點
         const klingRes = await fetch('https://api.klingai.com/v1/videos/text2video', {
           method: 'POST',
           headers: {
@@ -177,7 +181,6 @@ export default async function handler(req, res) {
         const status = checkData.data?.task_status;
         
         let videoUrl = "";
-        // 確保精準抓取 Kling 回傳陣列中的影片網址
         if (checkData.data?.task_result?.videos && checkData.data.task_result.videos.length > 0) {
           videoUrl = checkData.data.task_result.videos[0].url || "";
         }
