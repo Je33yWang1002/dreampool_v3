@@ -5,23 +5,20 @@ import fetch from 'node-fetch';
 export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
+  // --- 請在此處填入你的 Key ---
   const KLING_KEY = "sk-11c0717a842d43b4b2ed3977528f95f3";
+  const OPENAI_KEY = "這裡請填入你的OpenAI金鑰"; // ⬅️ 這裡一定要填，不然第一步就掛了
 
-  // --- 新增：處理查詢進度的請求 (GET) ---
   if (req.method === 'GET') {
     const { taskId } = req.query;
     if (!taskId) return res.status(400).json({ error: "Missing taskId" });
-
     try {
       const checkRes = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
         headers: { 'Authorization': `Bearer ${KLING_KEY}` }
       });
       const checkData = await checkRes.json();
-      
-      // Kling API 通常回傳在 data.task_status
-      const status = checkData.data?.task_status; // 'succeed', 'processing', 'failed'
+      const status = checkData.data?.task_status;
       const videoUrl = checkData.data?.task_result?.videos?.[0]?.url;
-
       return res.status(200).json({ 
         status: status === 'succeed' ? 'completed' : (status === 'failed' ? 'failed' : 'processing'),
         videoUrl: videoUrl || null 
@@ -41,7 +38,6 @@ export default async function handler(req, res) {
       const isDevelopMode = fields.mode === 'develop' || fields.mode?.[0] === 'develop';
 
       if (!isDevelopMode) {
-        // --- 階段一：語音轉種子 (Whisper + GPT) ---
         const audioFile = Array.isArray(files.file) ? files.file[0] : files.file;
         const filePath = audioFile.filepath || audioFile.path;
         const fileStream = fs.createReadStream(filePath);
@@ -51,22 +47,26 @@ export default async function handler(req, res) {
         fd.append('file', fileStream, { filename: 'dream.webm' });
         fd.append('model', 'whisper-1');
 
+        // 第一階段：Whisper
         const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, ...fd.getHeaders() },
+          headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, ...fd.getHeaders() },
           body: fd
         });
         const whisperResult = await whisperRes.json();
+        if (whisperResult.error) throw new Error("OpenAI Whisper 錯誤: " + whisperResult.error.message);
+        
         const rawText = whisperResult.text || "";
 
+        // 第二階段：GPT 提取種子
         const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "你是一位精準的夢境分析師。提取：場景、情緒、人物、顏色、感受。" },
-              { role: "user", content: `原始夢境：${rawText}。回傳 JSON: {"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` }
+              { role: "system", content: "你是一位精準的夢境分析師。請提取場景、情緒、人物、顏色、感受。" },
+              { role: "user", content: `原始夢境：${rawText}。請回傳 JSON：{"seeds": {"scene": "", "mood": "", "character": "", "color": "", "feeling": ""}}` }
             ],
             response_format: { type: "json_object" }
           })
@@ -76,12 +76,12 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, rawTranscript: rawText, seeds: aiContent.seeds });
 
       } else {
-        // --- 階段二：Kling AI 下單 ---
+        // 第三階段：Kling AI 生成
         const seeds = typeof fields.seeds === 'string' ? JSON.parse(fields.seeds) : JSON.parse(fields.seeds[0]);
         
         const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [
@@ -105,15 +105,17 @@ export default async function handler(req, res) {
           })
         });
         const klingData = await klingRes.json();
+        if (klingData.error) throw new Error("Kling AI 錯誤: " + klingData.error.message);
 
         return res.status(200).json({ 
           success: true, 
           videoPrompt: prompt, 
           tags: tags,
-          taskId: klingData.data?.task_id // 回傳單號給前端
+          taskId: klingData.data?.task_id
         });
       }
     } catch (error) {
+      console.error("後端錯誤詳細內容:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
   });
