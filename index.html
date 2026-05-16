@@ -11,204 +11,168 @@
         .seed-label { width: 85px; color: #ff4757; font-weight: bold; font-size: 14px; }
         .seed-input { background: transparent; border: none; color: #fff; width: 100%; font-size: 16px; outline: none; }
         .prompt-box { background: #1e272e; padding: 15px; border-radius: 8px; color: #70a1ff; font-family: monospace; margin-top: 10px; min-height: 50px; }
-        .tag { display: inline-block; background: #70a1ff; color: white; padding: 4px 12px; border-radius: 5px; margin: 5px 8px 5px 0; }
-        button { padding: 15px 40px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; margin: 10px; font-size: 16px; transition: all 0.3s; }
-        #start { background: #ff4757; color: white; }
-        #stop { background: #57606f; color: white; }
-        #developBtn { background: #ffd32a; color: #1a1a1a; width: 100%; margin-top: 20px; font-size: 18px; }
-        
-        .video-container { margin-top: 25px; text-align: center; display: none; background: #1e272e; padding: 20px; border-radius: 12px; border: 1px solid #ffd32a; }
-        video { width: 100%; max-width: 320px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); height: auto; aspect-ratio: 9 / 16; background: #000; }
-        .loading-movie { color: #ffd32a; font-style: italic; margin-top: 15px; text-align: center; display: none; padding: 10px; background: rgba(255,211,42,0.1); border-radius: 5px; }
-        
-        /* 偵錯專用工具箱 */
-        .debug-box { margin-top: 20px; background: #333; padding: 15px; border-radius: 8px; border: 1px dashed #aaa; }
-        .debug-input { width: 70%; padding: 8px; border-radius: 4px; border: 1px solid #666; background: #222; color: #fff; }
-        .debug-btn { padding: 8px 15px; background: #2ed573; color: white; border-radius: 4px; font-size: 12px; margin: 0 0 0 5px; }
+        .tag { display: inline-block; background: #ff4757; color: white; padding: 5px 12px; border-radius: 20px; font-size: 12px; margin-right: 8px; margin-top: 5px; font-weight: bold; }
+        .btn { background: #ff4757; color: white; border: none; padding: 15px 40px; font-size: 18px; border-radius: 30px; cursor: pointer; font-weight: bold; transition: 0.3s; width: 100%; max-width: 300px; margin-top: 20px; }
+        .btn:disabled { background: #747d8c; cursor: not-allowed; }
+        #movieLoadingStatus { color: #ffa502; font-weight: bold; margin-top: 15px; font-size: 16px; }
+        video { width: 100%; border-radius: 10px; margin-top: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
+
     <h1>🎬 潛意識電影院</h1>
-    <button id="start">按一下開始說話</button>
-    <button id="stop" style="display:none;">說完了，解析夢境</button>
-    <div id="status" style="margin:20px; color:#ffd32a;">準備就緒</div>
+    <p style="color: #a4b0be;">錄下你昨晚的夢境，讓 AI 幫你把夢境沖洗成電影短片</p>
+
+    <button id="recordBtn" class="btn">🎤 開始記錄夢境</button>
+    <button id="developBtn" class="btn" style="background:#2ed573; display:none;">🎞️ 開始沖洗夢境電影</button>
+
+    <div id="statusText" style="margin-top:15px; color:#ced6e0;"></div>
 
     <div id="result">
-        <h2 style="color:#ff4757; margin:0 0 20px 0;">✨ 解夢分析完成</h2>
-        <div id="rawText" style="color:#aaa; margin-bottom:20px; font-style: italic;"></div>
-
-        <p><strong>【夢境種子】(可手動點擊修改)</strong></p>
-        <div class="seed-row"><span class="seed-label">• 場景：</span><input id="s-scene" class="seed-input" placeholder="點擊填寫..."></div>
-        <div class="seed-row"><span class="seed-label">• 情緒：</span><input id="s-mood" class="seed-input" placeholder="點擊填寫..."></div>
-        <div class="seed-row"><span class="seed-label">• 人物：</span><input id="s-character" class="seed-input" placeholder="點擊填寫..."></div>
-        <div class="seed-row"><span class="seed-label">• 顏色：</span><input id="s-color" class="seed-input" placeholder="點擊填寫..."></div>
-        <div class="seed-row"><span class="seed-label">• 感受：</span><input id="s-feeling" class="seed-input" placeholder="點擊填寫..."></div>
+        <h3 style="margin-top:0; border-bottom: 2px solid #ff4757; padding-bottom: 10px;">🔮 夢境分析報告</h3>
         
-        <button id="developBtn">🎞️ 夢境沖洗 (Kling AI 生成影片)</button>
-
-        <div id="movieLoadingStatus" class="loading-movie">⌛ 正在膠捲顯影中，Kling AI 正在生成超現實夢境... (每 8 秒自動刷新進度)</div>
-
-        <div id="videoDisplaySection" class="video-container">
-            <p style="text-align:left; color:#ffd32a; margin-top:0;"><strong>🔮 您的潛意識電影上映了：</strong></p>
-            <video id="dreamVideoPlayer" controls autoplay loop playsinline mutes></video>
+        <div class="seed-row">
+            <div class="seed-label">情緒標籤</div>
+            <div id="tagsContainer"></div>
         </div>
 
-        <div class="debug-box">
-            <p style="margin:0 0 10px 0; font-size:13px; color:#aaa;">🛠️ 開發者測試工具（若 Kling 點數不足，可在下方直接貼上 MP4 網址測試畫面）：</p>
-            <input type="text" id="directVideoUrl" class="debug-input" placeholder="請在此處輸入 .mp4 影片網址...">
-            <button id="forcePlayBtn" class="debug-btn">強制秀出影片</button>
+        <div class="seed-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="seed-label">AI 導演提示詞</div>
+            <div id="promptBox" class="prompt-box"></div>
         </div>
 
-        <div id="finalOutput" style="margin-top:30px; display:none;">
-            <p><strong>AI 影片指令 (Video Prompt)：</strong></p>
-            <div id="videoPrompt" class="prompt-box"></div>
-            <p style="margin-top:20px;"><strong>情緒標籤：</strong></p>
-            <div id="tagContainer"></div>
+        <div id="videoDisplaySection" style="margin-top: 20px; display: none;">
+            <div class="seed-label" style="width:100%; margin-bottom:10px;">🎬 夢境電影放映中</div>
+            <video id="dreamVideoPlayer" controls autoplay loop playsinline></video>
         </div>
+
+        <div id="movieLoadingStatus" style="display:none;">⏳ 正在連線到 Kling AI 影像生成器...</div>
     </div>
 
     <script>
-        let chunks = []; let mediaRecorder;
-        const startBtn = document.getElementById('start');
-        const stopBtn = document.getElementById('stop');
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob = null;
+        let currentTaskId = null;
+
+        const recordBtn = document.getElementById('recordBtn');
         const developBtn = document.getElementById('developBtn');
-        const statusDiv = document.getElementById('status');
+        const statusText = document.getElementById('statusText');
         const resultDiv = document.getElementById('result');
 
-        // 手動強制播放測試功能
-        document.getElementById('forcePlayBtn').onclick = () => {
-            const url = document.getElementById('directVideoUrl').value.trim();
-            if(!url) { alert('請先輸入網址！'); return; }
-            
-            statusDiv.innerText = "🎉 成功手動載入測試影片！";
-            const player = document.getElementById('dreamVideoPlayer');
-            player.src = url;
-            player.load();
-            document.getElementById('videoDisplaySection').style.display = 'block';
-        };
-
-        startBtn.onclick = async () => {
-            try {
+        // 1. 處理錄音功能
+        recordBtn.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                recordBtn.innerText = "🎤 開始記錄夢境";
+                statusText.innerText = "錄音完成！點擊下方綠色按鈕開始沖洗影片。";
+                developBtn.style.display = "inline-block";
+            } else {
+                audioChunks = [];
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
-                chunks = [];
-                mediaRecorder.ondataavailable = e => chunks.push(e.data);
-                mediaRecorder.onstop = async () => {
-                    statusDiv.innerText = "⌛ 正在掃描夢境種子...";
-                    const blob = new Blob(chunks, { type: 'audio/webm' });
-                    const formData = new FormData();
-                    formData.append('file', blob, 'dream.webm');
-                    
-                    const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
-                    const data = await res.json();
-                    
-                    if (data.success) {
-                        statusDiv.innerText = "✅ 已提取種子，請確認或修改後點擊「夢境沖洗」";
-                        resultDiv.style.display = 'block';
-                        document.getElementById('rawText').innerText = "「 " + data.rawTranscript + " 」";
-                        document.getElementById('s-scene').value = data.seeds.scene || "";
-                        document.getElementById('s-mood').value = data.seeds.mood || "";
-                        document.getElementById('s-character').value = data.seeds.character || "";
-                        document.getElementById('s-color').value = data.seeds.color || "";
-                        document.getElementById('s-feeling').value = data.seeds.feeling || "";
-                        
-                        document.getElementById('videoDisplaySection').style.display = 'none';
-                        document.getElementById('movieLoadingStatus').style.display = 'none';
-                    } else {
-                        statusDiv.innerText = "❌ 失敗：" + (data.error || "無法解析語音");
-                    }
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 };
                 mediaRecorder.start();
-                startBtn.style.display='none'; stopBtn.style.display='inline-block';
-                statusDiv.innerText = "🎙️ 正在傾聽您的夢境，請說話...";
-            } catch(e) {
-                statusDiv.innerText = "❌ 無法啟動麥克風，請檢查瀏覽器權限設定";
+                recordBtn.innerText = "🛑 停止錄音";
+                statusText.innerText = "正在聆聽你的夢境中...";
             }
-        };
+        });
 
-        stopBtn.onclick = () => { mediaRecorder.stop(); startBtn.style.display='inline-block'; stopBtn.style.display='none'; };
-
-        developBtn.onclick = async () => {
-            statusDiv.innerText = "🎬 正在啟動 Kling AI 生成夢境影像...";
+        // 2. 點擊「開始沖洗夢境電影」
+        developBtn.addEventListener('click', async () => {
             developBtn.disabled = true;
             developBtn.style.opacity = "0.5";
-            
-            const seeds = {
-                scene: document.getElementById('s-scene').value,
-                mood: document.getElementById('s-mood').value,
-                character: document.getElementById('s-character').value,
-                color: document.getElementById('s-color').value,
-                feeling: document.getElementById('s-feeling').value
-            };
+            document.getElementById('movieLoadingStatus').style.display = 'block';
+            document.getElementById('movieLoadingStatus').innerText = "⚡ 正在將語音轉成劇本提示詞並提交給 Kling AI...";
+            resultDiv.style.display = 'block';
 
             const formData = new FormData();
-            formData.append('mode', 'develop');
-            formData.append('seeds', JSON.stringify(seeds));
+            if (audioBlob) {
+                formData.append('audio', audioBlob, 'dream.webm');
+            }
+            formData.append('mode', 'full_process');
 
             try {
+                // 發送給後端 API
                 const res = await fetch('/api/dream-process', { method: 'POST', body: formData });
                 const data = await res.json();
 
-                if (data.success) {
-                    statusDiv.innerText = "🚀 任務已送達 Kling！開始排隊沖洗影片...";
-                    document.getElementById('finalOutput').style.display = 'block';
-                    document.getElementById('videoPrompt').innerText = data.videoPrompt;
-                    document.getElementById('tagContainer').innerHTML = data.tags.map(t => `<span class="tag">#${t}</span>`).join('');
+                if (data.success && data.taskId) {
+                    currentTaskId = data.taskId;
                     
-                    document.getElementById('movieLoadingStatus').style.display = 'block';
-                    pollVideoStatus(data.taskId);
+                    // 顯示 GPT 生成的提示詞與標籤
+                    document.getElementById('promptBox').innerText = data.videoPrompt;
+                    const tagsContainer = document.getElementById('tagsContainer');
+                    tagsContainer.innerHTML = '';
+                    data.tags.forEach(t => {
+                        const span = document.createElement('span');
+                        span.className = 'tag';
+                        span.innerText = `# ${t}`;
+                        tagsContainer.appendChild(span);
+                    });
+
+                    // 開始輪詢檢查 Kling 的影片好了沒
+                    checkVideoStatus();
                 } else {
-                    statusDiv.innerText = "❌ 失敗：" + data.error;
+                    alert("建立任務失敗：" + (data.error || "未知錯誤"));
                     developBtn.disabled = false;
                     developBtn.style.opacity = "1";
-                    alert(data.error); // 直接跳出警告視窗提示錯誤
                 }
-            } catch (e) {
-                statusDiv.innerText = "❌ 網路連線錯誤";
+            } catch (err) {
+                alert("網路連線失敗：" + err.message);
                 developBtn.disabled = false;
                 developBtn.style.opacity = "1";
             }
-        };
+        });
 
-        function pollVideoStatus(taskId) {
+        // 3. 檢查 Kling 影片進度
+        function checkVideoStatus() {
+            const statusDiv = document.getElementById('movieLoadingStatus');
+            
             const interval = setInterval(async () => {
-                const checkData = new FormData();
-                checkData.append('mode', 'check_status');
-                checkData.append('taskId', taskId);
-
                 try {
-                    const res = await fetch('/api/dream-process', { method: 'POST', body: checkData });
+                    const checkForm = new FormData();
+                    checkForm.append('mode', 'check_status');
+                    checkForm.append('taskId', currentTaskId);
+
+                    const res = await fetch('/api/dream-process', { method: 'POST', body: checkForm });
                     const statusResult = await res.json();
 
                     if (statusResult.success) {
-                        const currentStatus = statusResult.status;
+                        const currentStatus = statusResult.status; // SUCCEED, PROCESSING, QUEUED, FAILED
                         
-                        if (currentStatus === 'SUCCESS' && statusResult.videoUrl) {
+                        // 影片做好了！
+                        if (currentStatus === 'SUCCEED' && statusResult.videoUrl) {
                             clearInterval(interval);
-                            document.getElementById('movieLoadingStatus').style.display = 'none';
-                            statusDiv.innerText = "🎉 夢境影片沖洗成功！";
+                            statusDiv.style.display = 'none';
                             
+                            // 這裡直接塞入影片網址並播放
                             const player = document.getElementById('dreamVideoPlayer');
                             player.src = statusResult.videoUrl;
-                            player.load();
                             document.getElementById('videoDisplaySection').style.display = 'block';
                             
                             developBtn.disabled = false;
                             developBtn.style.opacity = "1";
-                        } else if (currentStatus === 'FAILED') {
+                        } 
+                        // 失敗了
+                        else if (currentStatus === 'FAILED') {
                             clearInterval(interval);
-                            document.getElementById('movieLoadingStatus').style.display = 'none';
                             statusDiv.innerText = "❌ Kling 影像生成失敗，請再試一次";
                             developBtn.disabled = false;
                             developBtn.style.opacity = "1";
-                        } else {
+                        } 
+                        // 還在排隊或做圖中
+                        else {
                             statusDiv.innerText = "⏳ 影片製作中... 目前狀態：" + (currentStatus === 'PROCESSING' ? "正在渲染影片" : "排隊中");
                         }
                     }
                 } catch (e) {
-                    console.log("檢查進度中：", e);
+                    console.log("檢查進度中發生微小異常，繼續嘗試...", e);
                 }
-            }, 8000);
+            }, 5000); // 每 5 秒自動幫你問一次 Kling 好了沒
         }
     </script>
 </body>
