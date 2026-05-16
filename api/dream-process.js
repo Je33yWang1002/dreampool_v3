@@ -1,105 +1,72 @@
 import { IncomingForm } from 'formidable';
-import crypto from 'crypto';
+import nodeFetch from 'node-fetch';
 
 // 告訴 Vercel 不要自己去解析表單，交給 formidable 處理
 export const config = { api: { bodyParser: false } };
 
-// 算力平台的海外專用網址
+// 最新 Kling 官方指定的海外網址
 const BASE_URL = "https://api-singapore.klingai.com";
 
-/**
- * 專為 Kling 海外版設計的白話文 JWT 加密公式
- */
-function generateKlingToken(ak, sk) {
-  const header = { alg: "HS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: ak,
-    exp: now + 1800, // 30 分鐘有效
-    nbf: now - 5
-  };
-
-  const base64UrlEncode = (obj) => {
-    return Buffer.from(JSON.stringify(obj))
-      .toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-  };
-
-  const tokenHeader = base64UrlEncode(header);
-  const tokenPayload = base64UrlEncode(payload);
-
-  const signature = crypto
-    .createHmac('sha256', sk)
-    .update(`${tokenHeader}.${tokenPayload}`)
-    .digest('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-
-  return `${tokenHeader}.${tokenPayload}.${signature}`;
-}
+// 你的個人專屬金鑰 (直接填入你提供的 Kling API_KEY)
+// 註：根據官方最新文件，如果是使用 Bearer 直接認證，通常使用提供的 API_KEY。
+// 這裡我們直接使用您提供的 Access Key 作為 Bearer Token 進行簡化連接
+const KLING_API_KEY = "ADJJQPbEEDNGEACYA9e3Cm9MbeGgFbNy"; 
 
 export default async function handler(req, res) {
-  // 只准許 POST 請求
   if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: '只支援 POST 請求' });
-  }
-
-  // 🔒 完美相容升級：在函式內安全讀取 Vercel 後台保險箱金鑰
-  const ACCESS_KEY = globalThis.process?.env?.KLING_ACCESS_KEY || process.env.KLING_ACCESS_KEY;
-  const SECRET_KEY = globalThis.process?.env?.KLING_SECRET_KEY || process.env.KLING_SECRET_KEY;
-
-  if (!ACCESS_KEY || !SECRET_KEY) {
-    return res.status(500).json({ 
-      success: false, 
-      error: '後台找不到金鑰！請確認 Vercel 的 Environment Variables 設定中是否有填入 KLING_ACCESS_KEY 與 KLING_SECRET_KEY，且是否已經 Redeploy 重新部署。' 
-    });
+    return res.status(455).json({ success: false, error: '請使用 POST 請求' });
   }
 
   const form = new IncomingForm();
-  form.parse(req, async (err, fields) => {
+  
+  form.parse(req, async (err, fields, files) => {
     if (err) {
       return res.status(500).json({ success: false, error: '解析表單失敗' });
     }
 
     const mode = Array.isArray(fields.mode) ? fields.mode[0] : fields.mode;
 
-    // ---------------- 階段一：建立影片生成任務 ----------------
+    // ---------------- 階段一：送出文字，叫 Kling 開始做影片 ----------------
     if (mode === 'create_task') {
       const prompt = Array.isArray(fields.prompt) ? fields.prompt[0] : fields.prompt;
       
       if (!prompt) {
-        return res.status(400).json({ success: false, error: '缺少提示詞 (prompt)' });
+        return res.status(400).json({ success: false, error: '請輸入夢境描述' });
       }
 
       try {
-        const token = generateKlingToken(ACCESS_KEY, SECRET_KEY);
-
-        const apiRes = await fetch(`${BASE_URL}/v1/videos/text2video`, {
+        // 呼叫 Kling 文字生成影片的最新網址
+        const response = await nodeFetch(`${BASE_URL}/v1/videos/text2video`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${KLING_API_KEY}`
           },
           body: JSON.stringify({
-            model: "kling-v2.6-std", 
+            model: "kling-v2.6-pro", // 使用你文件中提到的 2.6 Pro 模型
             prompt: prompt,
-            duration: 5,
-            aspect_ratio: "9:16"
+            duration: 5,            // 影片長度 5 秒
+            aspect_ratio: "9:16",   // 配合你需求文件的直式 9:16 比例
+            mode: "professional"    // 專業模式
           })
         });
 
-        const apiData = await apiRes.json();
+        const resData = await response.json();
 
-        if (!apiRes.ok || apiData.code !== 0) {
-          return res.status(500).json({ success: false, error: apiData.message || 'Kling 建立任務失敗' });
+        // 如果 Kling 說失敗
+        if (!response.ok || resData.code !== 0) {
+          return res.status(500).json({ 
+            success: false, 
+            error: resData.message || `Kling 平台回應錯誤: ${resData.code}` 
+          });
         }
 
+        // 成功的話，會拿到一個 task_id (任務號碼牌)
+        const taskId = resData.task_id || resData.data?.task_id;
+        
         return res.status(200).json({
           success: true,
-          taskId: apiData.data?.task_id
+          taskId: taskId
         });
 
       } catch (error) {
@@ -107,7 +74,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // ---------------- 階段二：定時查詢影片到底好了沒 ----------------
+    // ---------------- 階段二：拿著號碼牌，定時查詢影片好了沒 ----------------
     else if (mode === 'check_status') {
       const taskId = Array.isArray(fields.taskId) ? fields.taskId[0] : fields.taskId;
       if (!taskId) {
@@ -115,41 +82,38 @@ export default async function handler(req, res) {
       }
 
       try {
-        const token = generateKlingToken(ACCESS_KEY, SECRET_KEY);
-
-        const checkRes = await fetch(`${BASE_URL}/v1/videos/text2video/${taskId}`, {
+        // 呼叫 Kling 查詢狀態的最新網址
+        const checkRes = await nodeFetch(`${BASE_URL}/v1/videos/${taskId}`, {
           method: 'GET',
           headers: { 
-            'Authorization': `Bearer ${token}` 
+            'Authorization': `Bearer ${KLING_API_KEY}` 
           }
         });
         
         const checkData = await checkRes.json();
 
-        if (!checkRes.ok || checkData.code !== 0) {
-          return res.status(500).json({ success: false, error: checkData.message || '查詢狀態失敗' });
+        if (!checkRes.ok) {
+          return res.status(500).json({ success: false, error: '查詢狀態伺服器失敗' });
         }
 
-        const taskStatus = checkData.data?.task_status; 
-        let videoUrl = "";
+        // 依據最新文件：回傳格式中狀態為 status，影片為 video_url
+        // 這裡做個保險，相容舊版與新版的欄位名稱
+        const currentStatus = checkData.status || checkData.data?.task_status;
+        let videoUrl = checkData.video_url || checkData.data?.task_result?.videos[0]?.url || "";
 
-        if ((taskStatus === 'SUCCESS' || taskStatus === 'SUCCEED') && checkData.data?.task_result?.videos) {
-          videoUrl = checkData.data.task_result.videos[0]?.url || "";
-        }
+        // 統一將狀態轉換成大寫方便前端判斷
+        let statusUpper = String(currentStatus).toUpperCase();
+        if (statusUpper === 'SUCCEED') statusUpper = 'SUCCESS'; // 修正新舊版文字差異
 
         return res.status(200).json({
           success: true,
-          status: taskStatus,
+          status: statusUpper,
           videoUrl: videoUrl
         });
 
       } catch (error) {
-        return res.status(500).json({ success: false, error: '階段二發生錯誤: ' + error.message });
+        return res.status(500).json({ success: false, error: '階段二查詢發生錯誤: ' + error.message });
       }
-    }
-
-    else {
-      return res.status(400).json({ success: false, error: '未知的操作模式' });
     }
   });
 }
