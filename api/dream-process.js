@@ -1,12 +1,10 @@
 import { IncomingForm } from 'formidable';
 import crypto from 'crypto';
 
+// 告訴 Vercel 不要自己去解析表單，交給 formidable 處理
 export const config = { api: { bodyParser: false } };
 
-// 🔒 安全升級：改成從 Vercel 後台保險箱讀取，不要寫死在這裡
-const ACCESS_KEY = process.env.KLING_ACCESS_KEY;
-const SECRET_KEY = process.env.KLING_SECRET_KEY;
-
+// 算力平台的海外專用網址
 const BASE_URL = "https://api-singapore.klingai.com";
 
 /**
@@ -44,8 +42,20 @@ function generateKlingToken(ak, sk) {
 }
 
 export default async function handler(req, res) {
+  // 只准許 POST 請求
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: '只支援 POST 請求' });
+  }
+
+  // 🔒 完美相容升級：在函式內安全讀取 Vercel 後台保險箱金鑰
+  const ACCESS_KEY = globalThis.process?.env?.KLING_ACCESS_KEY || process.env.KLING_ACCESS_KEY;
+  const SECRET_KEY = globalThis.process?.env?.KLING_SECRET_KEY || process.env.KLING_SECRET_KEY;
+
+  if (!ACCESS_KEY || !SECRET_KEY) {
+    return res.status(500).json({ 
+      success: false, 
+      error: '後台找不到金鑰！請確認 Vercel 的 Environment Variables 設定中是否有填入 KLING_ACCESS_KEY 與 KLING_SECRET_KEY，且是否已經 Redeploy 重新部署。' 
+    });
   }
 
   const form = new IncomingForm();
@@ -74,7 +84,7 @@ export default async function handler(req, res) {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            model: "kling-v2.6-std", // 使用標準模型加速，也可以依需求改為 kling-v2.6-pro
+            model: "kling-v2.6-std", 
             prompt: prompt,
             duration: 5,
             aspect_ratio: "9:16"
@@ -87,14 +97,13 @@ export default async function handler(req, res) {
           return res.status(500).json({ success: false, error: apiData.message || 'Kling 建立任務失敗' });
         }
 
-        // 把 Kling 給的任務 ID 傳回前端
         return res.status(200).json({
           success: true,
           taskId: apiData.data?.task_id
         });
 
       } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: '階段一發生錯誤: ' + error.message });
       }
     }
 
@@ -108,7 +117,6 @@ export default async function handler(req, res) {
       try {
         const token = generateKlingToken(ACCESS_KEY, SECRET_KEY);
 
-        // 使用最新的海外專用查詢網址
         const checkRes = await fetch(`${BASE_URL}/v1/videos/text2video/${taskId}`, {
           method: 'GET',
           headers: { 
@@ -122,10 +130,9 @@ export default async function handler(req, res) {
           return res.status(500).json({ success: false, error: checkData.message || '查詢狀態失敗' });
         }
 
-        const taskStatus = checkData.data?.task_status; // 會是 SUCCESS / PROCESSING / FAILED
+        const taskStatus = checkData.data?.task_status; 
         let videoUrl = "";
 
-        // 如果成功了，直接把真實的 mp4 影片網址抓出來
         if ((taskStatus === 'SUCCESS' || taskStatus === 'SUCCEED') && checkData.data?.task_result?.videos) {
           videoUrl = checkData.data.task_result.videos[0]?.url || "";
         }
@@ -137,7 +144,7 @@ export default async function handler(req, res) {
         });
 
       } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: '階段二發生錯誤: ' + error.message });
       }
     }
 
