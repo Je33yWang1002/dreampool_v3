@@ -1,14 +1,12 @@
 import { IncomingForm } from 'formidable';
-import fetch from 'node-fetch';
 import crypto from 'crypto';
 
 export const config = { api: { bodyParser: false } };
 
-// 你的 Kling 官方金鑰
-const ACCESS_KEY = "ADJJQPbEEDNGEACYA9e3Cm9MbeGgFbNy";
-const SECRET_KEY = "8DJ3ghrHk9ELeaeNJGRL8ChCknepH4E9";
+// 🔒 安全升級：改成從 Vercel 後台保險箱讀取，不要寫死在這裡
+const ACCESS_KEY = process.env.KLING_ACCESS_KEY;
+const SECRET_KEY = process.env.KLING_SECRET_KEY;
 
-// 算力平台的海外專用網址
 const BASE_URL = "https://api-singapore.klingai.com";
 
 /**
